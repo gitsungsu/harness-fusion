@@ -10,7 +10,7 @@ AGENTS_FILE = "agents.toml"
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 CRITERIA_WORDS = re.compile(r"완료\s*기준|인수\s*기준|수용\s*기준|acceptance|completion criteria|done when", re.I)
 TEST_WORDS = re.compile(r"테스트|test", re.I)
-OPTIONAL_SECTIONS = ("setup", "acceptance")
+OPTIONAL_SECTIONS = ("setup", "acceptance", "git")
 DEFAULT_SETUP_TIMEOUT = 600
 
 
@@ -68,6 +68,7 @@ def load(root):
     data["bootstrap"] = bootstrap_settings(bootstrap_raw)
     data["setup"] = setup_steps(optional.get("setup", []))
     data["acceptance"] = acceptance_path(optional.get("acceptance"))
+    data["git"] = git_settings(optional.get("git"))
     if data["acceptance"]:
         if "acceptance" in names:
             raise ContractError("Check name 'acceptance' is reserved when [acceptance] is configured")
@@ -110,6 +111,18 @@ def setup_steps(value):
         if "timeout" in step and (type(step["timeout"]) is not int or step["timeout"] < 1):
             raise ContractError("setup timeout must be a positive integer")
     return value
+
+
+def git_settings(value):
+    """Commit each passed task, optionally pushing it. Off unless declared."""
+    if value is None:
+        return {"commit": False, "push": False}
+    if not isinstance(value, dict) or set(value) - {"commit", "push"} or any(type(v) is not bool for v in value.values()):
+        raise ContractError("[git] may only set commit and push to true or false")
+    settings = {"commit": value.get("commit", False), "push": value.get("push", False)}
+    if settings["push"] and not settings["commit"]:
+        raise ContractError("[git] push = true requires commit = true")
+    return settings
 
 
 def acceptance_path(value):
@@ -203,7 +216,10 @@ context_chars = 48000
                '# Agents cannot install dependencies; declare what the project needs here.\n'
                '# [[setup]]\n# name = "install"\n'
                '# command = ["{python}", "-m", "pip", "install", "-r", "requirements.txt"]\n'
-               '# timeout = 600\n')
+               '# timeout = 600\n'
+               '\n# Commit each passed task and push it when a remote exists (needs a git repository).\n'
+               '# harness.toml, agents.toml, AGENTS.md, .fusion/ and .env* are never committed.\n'
+               '[git]\ncommit = true\npush = true\n')
     if acceptance:
         config += '\n[acceptance]\npath = "acceptance"\n'
     (root / "harness.toml").write_text(config, encoding="utf-8")

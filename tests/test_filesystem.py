@@ -40,6 +40,11 @@ class FilesystemTests(unittest.TestCase):
         changed = ["docs/PRD.md", "harness.toml", ".fusion/state.json", "src/a.py"]
         self.assertEqual(fs.violations(changed, "generator", ["docs/**", "harness.toml", ".fusion/**", "src/**"]), changed[:3])
 
+    def test_generator_may_regenerate_build_outputs_only(self):
+        changed = ["dist/index.html", "coverage/lcov.info", "distro/a.js", "src/a.js"]
+        self.assertEqual(fs.violations(changed, "generator", ["src/**"]), ["distro/a.js"])
+        self.assertEqual(fs.violations(["dist/index.html"], "evaluator", []), ["dist/index.html"])
+
     def test_atomic_state_roundtrip(self):
         import json
         path = self.root / "state.json"

@@ -1,12 +1,14 @@
 import io
 import json
+import shutil
+import subprocess
 import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 
 from harness_fusion.config import initialize, load
-from harness_fusion.engine import Engine, Halt
+from harness_fusion.engine import Engine, Halt, render_plan
 from test_contracts import valid_plan
 
 
@@ -148,3 +150,80 @@ class EngineTests(unittest.TestCase):
         engine.deadline = 0
         with self.assertRaises(Halt):
             engine.time_left(10)
+
+
+@unittest.skipUnless(shutil.which("git"), "git is required")
+class GitPublishTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name) / "project"
+        initialize(self.root, goal="정수 두 개를 더하는 add 함수를 작성하고 2+3=5를 검사한다.")
+
+    def git(self, *args, cwd=None):
+        return subprocess.run(["git", *args], cwd=cwd or self.root, check=True,
+                              capture_output=True, text=True).stdout
+
+    def run_engine(self):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = Engine(self.root, invoke=FakeAgent()).run()
+        return code, out.getvalue()
+
+    def test_passed_tasks_are_committed_without_controls_and_pushed(self):
+        bare = Path(self.temp.name) / "remote.git"
+        self.git("init", "-q", "--bare", str(bare), cwd=self.temp.name)
+        self.git("init", "-q")
+        self.git("config", "user.name", "Test")
+        self.git("config", "user.email", "test@example.com")
+        self.git("remote", "add", "origin", str(bare))
+        (self.root / ".env").write_text("SECRET=1\n")
+        (self.root / "node_modules/pkg").mkdir(parents=True)
+        (self.root / "node_modules/pkg/index.js").write_text("x\n")
+        code, out = self.run_engine()
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.git("log", "--format=%s").split("\n")[:2],
+                         ["FINAL: Whole-project acceptance", "T1: Add"])
+        tracked = self.git("ls-files").split()
+        self.assertIn("calculator.py", tracked)
+        self.assertIn("tests/test_calc.py", tracked)
+        for never in ("harness.toml", "agents.toml", "AGENTS.md", ".env", "node_modules/pkg/index.js"):
+            self.assertNotIn(never, tracked)
+        self.assertFalse([p for p in tracked if p.startswith(".fusion/")])
+        self.assertIn("T1: Add", self.git("--git-dir", str(bare), "log", "--format=%s", "HEAD"))
+        self.assertIn("[T1] PASS: verdict PASS, spec 3/3, test 3/3, criteria 1/1, checks acceptance-tests=ok", out)
+        self.assertIn("pushed to origin", out)
+
+    def test_missing_repository_is_reported_not_fatal(self):
+        code, out = self.run_engine()
+        self.assertEqual(code, 0, out)
+        self.assertIn("[T1] git: skipped: not a git repository", out)
+
+    def test_failed_task_is_reported_with_reasons(self):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            Engine(self.root, invoke=FakeAgent(always_broken=True)).run()
+        self.assertIn("[T1] FAIL", out.getvalue())
+        self.assertIn("checks acceptance-tests=1", out.getvalue())
+
+    def test_git_settings_validated(self):
+        path = self.root / "harness.toml"
+        base = path.read_text().split("[git]")[0]
+        self.assertEqual(load(self.root)["git"], {"commit": True, "push": True})
+        path.write_text(base)
+        self.assertEqual(load(self.root)["git"], {"commit": False, "push": False})
+        for bad in ("[git]\npush = true\n", "[git]\ncommit = \"yes\"\n", "[git]\nbranch = \"main\"\n"):
+            path.write_text(base + bad)
+            with self.assertRaises(ValueError):
+                load(self.root)
+
+
+class RenderPlanTests(unittest.TestCase):
+    def test_summary_sentences_become_bullets_and_tasks_a_table(self):
+        plan = {"summary": "첫 문장입니다. 둘째는 a|b를 씁니다.",
+                "tasks": [{"id": "T1", "title": "A|B", "depends_on": [], "touch": ["src/**"], "acceptance": ["x"]},
+                          {"id": "T2", "title": "C", "depends_on": ["T1"], "touch": ["a", "b"], "acceptance": ["y"]}]}
+        text = render_plan(plan, ["T1"])
+        self.assertIn("- 첫 문장입니다.\n- 둘째는 a|b를 씁니다.\n", text)
+        self.assertIn("| T1 | A\|B | - | src/** | 완료 |", text)
+        self.assertIn("| T2 | C | T1 | a, b | 대기 |", text)

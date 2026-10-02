@@ -195,6 +195,22 @@ timeout = 600   # 선택, 초 단위. 기본 600
 - 실행 기록은 `.fusion/setup/`과 `events.jsonl`에 남습니다. `doctor`가 실행 파일 존재를 확인합니다.
 - `harness.toml`을 바꾸면 이전 실행에 이어 붙일 수 없습니다. 명령은 신뢰하는 로컬 명령으로 취급합니다.
 - 에이전트가 설치하게 하는 기능은 없습니다. `.venv`·`node_modules`는 수정 감시에서 제외되어 있어 setup이 채워도 범위 위반이 아닙니다.
+- generator가 스스로 빌드해 `dist/`·`build/`·`.next/`·`coverage/`를 만들어도 범위 위반이 아닙니다(빌드 산출물).
+
+## 단계별 보고와 커밋·푸시
+
+작업마다 평가가 끝나면 `[T1] PASS: verdict PASS, spec 3/3, test 3/3, criteria 3/3, checks ...` 형태로 결과를 출력하고,
+실패한 기준과 지적 사항을 이어서 보여 줍니다. `init`은 아래 설정을 기본으로 넣습니다.
+
+```toml
+[git]
+commit = true   # 통과한 작업마다 "T1: 제목"으로 커밋, 최종 통과 후 "FINAL: ..." 커밋
+push = true     # 원격(origin 우선)이 있으면 푸시. commit = true가 필요
+```
+
+- `harness.toml`, `agents.toml`, `AGENTS.md`, `.fusion/`, `.env*`, 의존성·빌드 산출물 폴더는 커밋하지 않습니다.
+- git 저장소가 아니거나 원격이 없거나 푸시가 실패해도 작업 판정은 바뀌지 않고, 출력과 `events.jsonl`(`git`)에 사유를 남깁니다.
+- 저장소와 원격은 사람이 먼저 준비합니다(`git init`, `git remote add origin ...`). `[git]`이 없으면 커밋하지 않습니다.
 
 ## 수용 테스트 보호 폴더(선택)
 

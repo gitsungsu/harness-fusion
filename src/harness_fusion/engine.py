@@ -1,6 +1,7 @@
 """State machine owns completion; models supply proposals and evidence."""
 import hashlib
 import json
+import re
 import time
 import uuid
 from datetime import datetime, timezone
@@ -8,6 +9,25 @@ from pathlib import Path
 
 from . import config, context, contracts, filesystem as fs, providers
 from .process import execute
+
+
+# Never committed: run controls, harness state and secrets.
+GIT_NEVER = (":(exclude)harness.toml", f":(exclude){config.AGENTS_FILE}", ":(exclude)AGENTS.md",
+             ":(exclude).fusion", ":(exclude,glob)**/.env*")
+
+
+def render_plan(plan, completed):
+    """Readable PLAN.md: one bullet per summary sentence, then a task overview table."""
+    def cell(text):
+        return text.replace("|", "\\|")
+    lines = ["# Plan", "", "## 요약", ""]
+    lines += [f"- {s}" for s in re.split(r"(?<=[.!?])\s+", plan["summary"].strip()) if s]
+    lines += ["", "## 작업 순서", "", "| ID | 작업 | 선행 | 수정 범위 | 상태 |", "|---|---|---|---|---|"]
+    for task in plan["tasks"]:
+        lines.append(f"| {task['id']} | {cell(task['title'])} | {', '.join(task['depends_on']) or '-'} | "
+                     f"{cell(', '.join(task['touch']))} | {'완료' if task['id'] in completed else '대기'} |")
+    lines += ["", "작업별 완료 기준은 docs/TASKS.md에 있습니다."]
+    return "\n".join(lines) + "\n"
 
 
 class Halt(RuntimeError):
@@ -41,7 +61,7 @@ class Engine:
         docs = self.root / "docs"
         plan = self.state.get("plan")
         if plan:
-            (docs / "PLAN.md").write_text("# Plan\n\n" + plan["summary"] + "\n", encoding="utf-8")
+            (docs / "PLAN.md").write_text(render_plan(plan, self.state["completed"]), encoding="utf-8")
             rows = ["# Tasks", ""]
             for task in plan["tasks"]:
                 done = task["id"] in self.state["completed"]
@@ -167,7 +187,7 @@ class Engine:
             result = execute(config.argv(check["command"]), self.root,
                              self.time_left(self.cfg["limits"]["check_timeout"]))
             changed = fs.changes(before, fs.snapshot(self.root))
-            illegal = [p for p in changed if not p.startswith(("dist/", "build/", ".next/", "coverage/"))]
+            illegal = [p for p in changed if not p.startswith(fs.BUILD_OUTPUTS)]
             result.update(name=check["name"], command=check["command"])
             token = uuid.uuid4().hex
             fs.atomic_json(self.meta / "checks" / f"{token}.json", result)
@@ -189,9 +209,54 @@ class Engine:
         # Evaluator is read-only and source hashes were checked after its process returned.
         passed = contracts.gate(evidence, review)
         self.event("gate", task=task["id"], passed=passed)
+        self.report(task, evidence, review, passed)
         if not passed:
             self.state["last_failure"] = {"task": task["id"], "review": review, "checks": evidence}
         return passed
+
+    @staticmethod
+    def report(task, evidence, review, passed):
+        ok = sum(c["passed"] for c in review["criteria"])
+        checks = ", ".join(f"{c['name']}={'ok' if c['returncode'] == 0 else c['returncode']}" for c in evidence)
+        print(f"[{task['id']}] {'PASS' if passed else 'FAIL'}: verdict {review['verdict']}, "
+              f"spec {review['spec_score']}/3, test {review['test_score']}/3, "
+              f"criteria {ok}/{len(review['criteria'])}, checks {checks}", flush=True)
+        for c in review["criteria"]:
+            if not c["passed"]:
+                print(f"  - failed: {c['criterion'][:200]}", flush=True)
+        for issue in review["issues"]:
+            print(f"  - issue: {issue[:200]}", flush=True)
+
+    def publish(self, task):
+        """Commit (and push) a passed task. Best effort: the gate already decided the outcome."""
+        if not self.cfg["git"]["commit"]:
+            return
+        def git(*args):
+            return execute(["git", *args], self.root, 120)
+        def tail(result):
+            return (result["stderr"] or result["stdout"]).strip()[-300:]
+        excludes = [f":(exclude,glob)**/{name}/**" for name in fs.EXCLUDED]
+        excludes += [f":(exclude){prefix.rstrip('/')}" for prefix in fs.BUILD_OUTPUTS]
+        if git("rev-parse", "--is-inside-work-tree")["returncode"] != 0:
+            note = "skipped: not a git repository"
+        elif (added := git("add", "-A", "--", ".", *GIT_NEVER, *excludes))["returncode"] != 0:
+            note = "add failed: " + tail(added)
+        elif git("diff", "--cached", "--quiet")["returncode"] == 0:
+            note = "nothing to commit"
+        elif (committed := git("commit", "-m", f"{task['id']}: {task['title']}"))["returncode"] != 0:
+            note = "commit failed: " + tail(committed)
+        else:
+            note = "committed " + git("rev-parse", "--short", "HEAD")["stdout"].strip()
+            if self.cfg["git"]["push"]:
+                remotes = git("remote")["stdout"].split()
+                if not remotes:
+                    note += "; push skipped: no remote"
+                else:
+                    remote = "origin" if "origin" in remotes else remotes[0]
+                    pushed = git("push", "-u", remote, "HEAD")
+                    note += f"; pushed to {remote}" if pushed["returncode"] == 0 else "; push failed: " + tail(pushed)
+        self.event("git", task=task["id"], note=note)
+        print(f"[{task['id']}] git: {note}", flush=True)
 
     def run(self, resume=False):
         self.deadline = time.monotonic() + self.cfg["limits"]["total_seconds"]
@@ -244,6 +309,7 @@ class Engine:
                             self.state["completed"].append(task["id"])
                             self.state["last_failure"] = None
                             self.save()
+                            self.publish(task)
                             break
                         self.save()
                     if task["id"] not in self.state["completed"]:
@@ -260,6 +326,7 @@ class Engine:
                 self.save()
                 self.event("done", digest=self.state["digest"])
                 print("DONE: tests + task reviews + final integration review passed.", flush=True)
+                self.publish(final)
                 return 0
             except (Exception, KeyboardInterrupt) as exc:
                 self.state["status"] = "HALTED"
