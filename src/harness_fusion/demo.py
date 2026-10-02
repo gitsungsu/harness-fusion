@@ -3,7 +3,7 @@ import json
 import sys
 from pathlib import Path
 
-from .config import initialize
+from .config import AGENTS_FILE, ROLES, initialize
 from .engine import Engine
 
 SOURCE = '''import sqlite3
@@ -56,9 +56,10 @@ class TrackerTests(unittest.TestCase):
 
 def run_demo(root):
     initialize(root, goal="SQLite 작업 목록: 제목을 저장하고 삽입 순서로 조회한다. 빈 제목을 거부하고 한글·따옴표를 보존한다.")
-    path = root / "harness.toml"
-    path.write_text(path.read_text(encoding="utf-8").replace(
-        'backend = "codex"', 'backend = "command"\ncommand = ["{python}", "-m", "harness_fusion.demo", "--agent"]'), encoding="utf-8")
+    # The scripted command backend has no model or effort, so replace the real-agent template.
+    (root / AGENTS_FILE).write_text("\n".join(
+        f'[{role}]\nbackend = "command"\ncommand = ["{{python}}", "-m", "harness_fusion.demo", "--agent"]\n'
+        for role in ROLES), encoding="utf-8")
     print("Scripted demo: first implementation intentionally fails a real test; second attempt repairs it.")
     return Engine(root).run()
 

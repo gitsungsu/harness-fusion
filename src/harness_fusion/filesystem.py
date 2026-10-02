@@ -65,20 +65,32 @@ def matches(path, rule):
 
 def protected(path):
     return (path.startswith((".fusion/", ".git/", ".env")) or path in
-            {"harness.toml", "AGENTS.md", "CLAUDE.md", "docs/PRD.md", "docs/PLAN.md",
+            {"harness.toml", "agents.toml", "AGENTS.md", "CLAUDE.md", "docs/PRD.md", "docs/PLAN.md",
              "docs/TASKS.md", "docs/MEMORY.md", "docs/IMPLEMENT.md", "docs/REVIEW.md"})
 
 
-def violations(changed, role, touch):
+def violations(changed, role, touch, locked=()):
     if role != "generator":
         return changed
-    return [p for p in changed if protected(p) or not any(matches(p, rule) for rule in touch)]
+    locked = tuple(prefix.rstrip("/") + "/" for prefix in locked)
+    return [p for p in changed
+            if protected(p) or p.startswith(locked) or not any(matches(p, rule) for rule in touch)]
+
+
+def tree_files(root, folder):
+    """Content hashes of every file under a project folder, keyed by relative path."""
+    prefix = folder.rstrip("/") + "/"
+    return {p: h for p, h in snapshot(root).items() if p.startswith(prefix)}
+
+
+def digest(items):
+    return hashlib.sha256(json.dumps(items, sort_keys=True).encode()).hexdigest()
 
 
 def code_digest(root):
     items = {p: h for p, h in snapshot(root).items() if not p.startswith(".fusion/")
              and p not in {"docs/PLAN.md", "docs/TASKS.md", "docs/MEMORY.md", "docs/IMPLEMENT.md", "docs/REVIEW.md"}}
-    return hashlib.sha256(json.dumps(items, sort_keys=True).encode()).hexdigest()
+    return digest(items)
 
 
 @contextmanager

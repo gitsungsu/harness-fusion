@@ -8,3 +8,5 @@ build/
 .pytest_cache/
 .omc/
 .claude/settings.local.json
+CHECK.md
+bench-runs/

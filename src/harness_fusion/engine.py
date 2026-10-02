@@ -4,6 +4,7 @@ import json
 import time
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 from . import config, context, contracts, filesystem as fs, providers
 from .process import execute
@@ -52,8 +53,10 @@ class Engine:
             self.state.get("memory", [])[-5:]) + "\n", encoding="utf-8")
 
     def load_state(self, resume):
-        fingerprint = hashlib.sha256(b"\0".join((self.root / p).read_bytes()
-            for p in ("harness.toml", "AGENTS.md", "docs/PRD.md"))).hexdigest()
+        tracked = ["harness.toml", "AGENTS.md", "docs/PRD.md"]
+        if (self.root / config.AGENTS_FILE).is_file():  # absent for legacy projects: keeps old fingerprints valid
+            tracked.append(config.AGENTS_FILE)
+        fingerprint = hashlib.sha256(b"\0".join((self.root / p).read_bytes() for p in tracked)).hexdigest()
         if self.state_path.exists():
             if not resume:
                 raise Halt("Existing run found. Use --resume to continue")
@@ -74,7 +77,7 @@ class Engine:
         folder = self.meta / "runs" / token
         folder.mkdir(parents=True)
         prompt = context.build(self.root, role, self.state, token, task, evidence,
-                               self.cfg["limits"]["context_chars"])
+                               self.cfg["limits"]["context_chars"], self.cfg["acceptance"])
         (folder / "prompt.txt").write_text(prompt, encoding="utf-8")
         before = fs.snapshot(self.root)
         result = None
@@ -87,11 +90,13 @@ class Engine:
         finally:
             after = fs.snapshot(self.root)
             changed = fs.changes(before, after)
-            illegal = fs.violations(changed, role, task["touch"] if task else [])
+            illegal = fs.violations(changed, role, task["touch"] if task else [],
+                                    [self.cfg["acceptance"]] if self.cfg["acceptance"] else [])
             fs.atomic_json(folder / "changes.json", {"changed": changed, "violations": illegal,
                                                      "before": before, "after": after})
             self.event("agent", role=role, token=token, backend=self.cfg["agents"][role]["backend"],
                        model=self.cfg["agents"][role].get("model", "CLI default"),
+                       effort=self.cfg["agents"][role].get("effort", "CLI default"),
                        prompt_sha256=hashlib.sha256(prompt.encode()).hexdigest(),
                        seconds=result.get("seconds") if result else None,
                        usage=result.get("usage") if result else None,
@@ -99,6 +104,7 @@ class Engine:
                        changed=changed, error=str(failure) if failure else None)
         if illegal:
             raise Halt(f"{role} modified forbidden paths: {', '.join(illegal)}. Changes retained for inspection")
+        self.guard_acceptance()
         if failure:
             raise failure
         fs.atomic_json(folder / "result.json", result)
@@ -116,6 +122,44 @@ class Engine:
             return data
         return contracts.review(data, token, task["id"], task["acceptance"])
 
+    def acceptance_digest(self):
+        files = fs.tree_files(self.root, self.cfg["acceptance"])
+        if not any(Path(p).name.lower() != "readme.md" for p in files):
+            raise Halt(f"Acceptance folder '{self.cfg['acceptance']}' must contain human-written tests (not only README.md)")
+        return fs.digest(files)
+
+    def guard_acceptance(self):
+        """Human-owned tests are pinned by content hash for the whole run, across resumes."""
+        if not self.cfg["acceptance"]:
+            return
+        recorded = self.state.get("acceptance_digest")
+        if recorded is None:
+            self.state["acceptance_digest"] = self.acceptance_digest()
+        elif self.acceptance_digest() != recorded:
+            raise Halt(f"Acceptance tests changed since the run started: {self.cfg['acceptance']}/. "
+                       "Restore them or start a new project folder")
+
+    def run_setup(self):
+        """Run human-declared preparation once; failure stops before any agent is called."""
+        for step in self.cfg["setup"]:
+            result = execute(config.argv(step["command"]), self.root,
+                             self.time_left(step.get("timeout", config.DEFAULT_SETUP_TIMEOUT)))
+            token = uuid.uuid4().hex
+            result.update(name=step["name"], command=step["command"])
+            fs.atomic_json(self.meta / "setup" / f"{token}.json", result)
+            self.event("setup", token=token, name=step["name"], returncode=result["returncode"],
+                       seconds=result["seconds"])
+            if result["returncode"] != 0:
+                detail = (result["stderr"] or result["stdout"]).strip()[-1000:]
+                raise Halt(f"Setup '{step['name']}' failed ({result['returncode']}): {detail}")
+
+    def prepare(self):
+        self.guard_acceptance()
+        if self.cfg["setup"] and not self.state.get("setup_done"):
+            self.run_setup()
+            self.state["setup_done"] = True
+        self.save()
+
     def checks(self):
         results = []
         for check in self.cfg["checks"]:
@@ -131,6 +175,7 @@ class Engine:
             if illegal:
                 raise Halt("Check changed project sources or controls: " + ", ".join(illegal))
             # Prompts carry tails; full bounded process output remains in the check artifact.
+            self.guard_acceptance()
             results.append({**result, "stdout": result["stdout"][-6000:], "stderr": result["stderr"][-6000:]})
         fs.atomic_json(self.meta / "latest-checks.json", results)
         return results
@@ -152,10 +197,15 @@ class Engine:
         self.deadline = time.monotonic() + self.cfg["limits"]["total_seconds"]
         with fs.project_lock(self.root):
             self.load_state(resume)
+            self.state.pop("halt_kind", None)
+            self.state.pop("retry_hint", None)
             try:
                 prd = (self.root / "docs/PRD.md").read_text(encoding="utf-8")
                 if "TODO:" in prd or len(prd.strip()) < 20:
                     raise Halt("Write concrete requirements in docs/PRD.md first")
+                for warning in config.prd_warnings(prd):
+                    print("WARNING: " + warning, flush=True)
+                self.prepare()
                 if not self.state["plan"]:
                     self.state["status"] = "PLANNING"
                     self.save()
@@ -180,10 +230,17 @@ class Engine:
                         self.state["active"] = task["id"]
                         self.save()
                         print(f"[{task['id']}] attempt {self.state['attempts'][task['id']]}: {task['title']}", flush=True)
-                        self.agent("generator", task)
-                        self.state["status"] = "VERIFYING"
-                        self.save()
-                        if self.assess(task):
+                        try:
+                            self.agent("generator", task)
+                            self.state["status"] = "VERIFYING"
+                            self.save()
+                            passed = self.assess(task)
+                        except providers.UsageLimitError:
+                            # A usage limit is not a failed attempt; do not spend the retry budget on it.
+                            self.state["attempts"][task["id"]] -= 1
+                            self.state["cycles"] -= 1
+                            raise
+                        if passed:
                             self.state["completed"].append(task["id"])
                             self.state["last_failure"] = None
                             self.save()
@@ -207,7 +264,35 @@ class Engine:
             except (Exception, KeyboardInterrupt) as exc:
                 self.state["status"] = "HALTED"
                 self.state["reason"] = "Interrupted" if isinstance(exc, KeyboardInterrupt) else str(exc)
+                if isinstance(exc, providers.UsageLimitError):
+                    self.state["halt_kind"] = "usage_limit"
+                    self.state["retry_hint"] = exc.hint
+                    when = f" Retry after {exc.hint}." if exc.hint else ""
+                    self.state["reason"] = (f"USAGE_LIMIT: {exc}.{when} Progress is saved; "
+                                            "run again with --resume after the limit resets.")
                 self.save()
                 self.event("halt", reason=self.state["reason"])
                 print("HALTED: " + self.state["reason"], flush=True)
                 return 130 if isinstance(exc, KeyboardInterrupt) else 2
+
+
+def usage_summary(root):
+    """Per-role calls, seconds and (when the CLI reports them) Claude tokens/cost, from events.jsonl."""
+    path = root / ".fusion" / "events.jsonl"
+    summary = {}
+    if not path.is_file():
+        return summary
+    for line in path.read_text(encoding="utf-8").splitlines():
+        event = json.loads(line)
+        if event.get("kind") != "agent":
+            continue
+        item = summary.setdefault(event["role"], {"calls": 0, "seconds": 0.0})
+        item["calls"] += 1
+        item["seconds"] = round(item["seconds"] + (event.get("seconds") or 0), 3)
+        for key in ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"):
+            value = (event.get("usage") or {}).get(key)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                item[key] = item.get(key, 0) + value
+        if isinstance(event.get("cost_usd"), (int, float)):
+            item["cost_usd"] = round(item.get("cost_usd", 0) + event["cost_usd"], 6)
+    return summary

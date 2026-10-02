@@ -20,7 +20,7 @@ SCHEMAS = {
 }
 
 
-def build(root, role, state, token, task, evidence, limit):
+def build(root, role, state, token, task, evidence, limit, acceptance=None):
     instructions = {
         "planner": "Inspect the project. Cover the whole PRD with ordered tasks and concrete acceptance criteria. "
                    "No file edits. Include tests in touch paths. Dependencies refer only to earlier tasks. "
@@ -50,6 +50,9 @@ def build(root, role, state, token, task, evidence, limit):
         "checks": evidence,
         "memory": state.get("memory", [])[-5:],
     }
+    if acceptance:
+        context["acceptance_path"] = acceptance
+        context["acceptance_rule"] = "Human-owned acceptance tests: read them, never edit, add or delete files there."
     for name in ("ARCHITECTURE.md", "DECISIONS.md"):
         path = root / "docs" / name
         if path.is_file():

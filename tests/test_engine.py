@@ -131,6 +131,18 @@ class EngineTests(unittest.TestCase):
             initialize(self.root)
         self.assertEqual((self.root / "AGENTS.md").read_bytes(), old)
 
+    def test_templates_pin_default_models_per_backend(self):
+        with tempfile.TemporaryDirectory() as name:
+            codex = Path(name) / "codex"
+            claude = Path(name) / "claude"
+            initialize(codex, backend="codex", goal="정수 두 개를 더하는 add 함수를 작성한다.")
+            initialize(claude, backend="claude", goal="정수 두 개를 더하는 add 함수를 작성한다.")
+            for role, agent in load(codex)["agents"].items():
+                expected = "claude-sonnet-5-5" if role == "planner" else "gpt-6.1-sol"
+                self.assertEqual(agent["model"], expected, role)
+            for role, agent in load(claude)["agents"].items():
+                self.assertEqual(agent["model"], "claude-sonnet-5-5", role)
+
     def test_total_timeout_blocks_completion(self):
         engine = Engine(self.root, invoke=FakeAgent())
         engine.deadline = 0

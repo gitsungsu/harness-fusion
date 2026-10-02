@@ -13,7 +13,8 @@ from harness_fusion.providers import command_for, invoke
 
 class ProcessTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
+        # A just-killed process can hold its cwd for a moment on Windows; that must not fail the test.
+        self.temp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
 

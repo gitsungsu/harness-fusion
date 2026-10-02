@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Harness Fusion 구조",
+    "output": ".archify/architecture-harness-fusion-20261002-194203/harness-fusion.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/gitsungsu/harness-fusion.git",
+      "provider": "github",
+      "revision": "de2ccd83e11e282dba9ad13d600c7dd595cd61c4"
+    }
+  },
+  "components": [
+    { "id": "user", "type": "external", "label": "개발자", "sublabel": "PRD·harness.toml", "pos": [20, 260], "size": [120, 64],
+      "sources": [{ "path": "src/harness_fusion/cli.py", "line": 48, "end_line": 80, "label": "CLI 명령" }] },
+    { "id": "cli", "type": "backend", "label": "CLI", "sublabel": "init·run·doctor", "pos": [175, 260], "size": [120, 64],
+      "sources": [{ "path": "src/harness_fusion/cli.py", "line": 48, "end_line": 80, "label": "명령 분기" }] },
+    { "id": "engine", "type": "backend", "label": "Engine", "sublabel": "상태기계·DONE 결정", "pos": [390, 254], "size": [190, 76], "tag": "모델은 제안만",
+      "sources": [
+        { "path": "src/harness_fusion/engine.py", "line": 72, "end_line": 117, "label": "역할 호출" },
+        { "path": "src/harness_fusion/engine.py", "line": 151, "end_line": 213, "label": "실행 루프" }
+      ] },
+    { "id": "providers", "type": "backend", "label": "Providers", "sublabel": "codex·claude·command", "pos": [695, 90], "size": [150, 64],
+      "sources": [{ "path": "src/harness_fusion/providers.py", "line": 11, "end_line": 56, "label": "CLI 인자·응답" }] },
+    { "id": "process", "type": "backend", "label": "Process 실행기", "sublabel": "argv·timeout·1MiB", "pos": [700, 242], "size": [140, 100],
+      "sources": [
+        { "path": "src/harness_fusion/process.py", "line": 11, "end_line": 28, "label": "셸 없는 해석" },
+        { "path": "src/harness_fusion/process.py", "line": 47, "end_line": 97, "label": "실행·종료" }
+      ] },
+    { "id": "codex", "type": "external", "label": "Codex CLI", "sublabel": "exec --sandbox", "pos": [950, 160], "size": [150, 64],
+      "sources": [{ "path": "src/harness_fusion/providers.py", "line": 14, "end_line": 20, "label": "codex exec" }] },
+    { "id": "claude", "type": "external", "label": "Claude Code", "sublabel": "-p --tools", "pos": [950, 260], "size": [150, 64],
+      "sources": [{ "path": "src/harness_fusion/providers.py", "line": 21, "end_line": 26, "label": "claude -p" }] },
+    { "id": "checkcmd", "type": "external", "label": "검사 명령", "sublabel": "unittest·pytest·ruff", "pos": [950, 360], "size": [150, 64],
+      "sources": [
+        { "path": "src/harness_fusion/engine.py", "line": 119, "end_line": 136, "label": "검사 실행" },
+        { "path": "src/harness_fusion/verification.py", "line": 6, "end_line": 21, "label": "기본 러너" }
+      ] },
+    { "id": "state", "type": "database", "label": "실행 상태", "sublabel": ".fusion/state·events", "pos": [10, 440], "size": [150, 64],
+      "sources": [
+        { "path": "src/harness_fusion/engine.py", "line": 33, "end_line": 39, "label": "이벤트·저장" },
+        { "path": "src/harness_fusion/filesystem.py", "line": 12, "end_line": 21, "label": "원자 저장" }
+      ] },
+    { "id": "fs", "type": "security", "label": "Filesystem 감시", "sublabel": "내용 해시·touch 범위", "pos": [200, 440], "size": [150, 64], "tag": "fail-closed",
+      "sources": [
+        { "path": "src/harness_fusion/filesystem.py", "line": 24, "end_line": 50, "label": "내용 해시" },
+        { "path": "src/harness_fusion/filesystem.py", "line": 66, "end_line": 81, "label": "범위·보호" },
+        { "path": "src/harness_fusion/filesystem.py", "line": 84, "end_line": 109, "label": "동시 실행 잠금" }
+      ] },
+    { "id": "context", "type": "backend", "label": "Context 빌더", "sublabel": "PRD·규칙·기억 JSON", "pos": [410, 440], "size": [150, 64],
+      "sources": [{ "path": "src/harness_fusion/context.py", "line": 23, "end_line": 63, "label": "프롬프트 조립" }] },
+    { "id": "contracts", "type": "security", "label": "Contracts 게이트", "sublabel": "JSON 검증·완료 판정", "pos": [620, 440], "size": [150, 64], "tag": "fail-closed",
+      "sources": [
+        { "path": "src/harness_fusion/contracts.py", "line": 62, "end_line": 82, "label": "계획 검증" },
+        { "path": "src/harness_fusion/contracts.py", "line": 85, "end_line": 106, "label": "평가 검증" },
+        { "path": "src/harness_fusion/contracts.py", "line": 109, "end_line": 113, "label": "완료 게이트" }
+      ] },
+    { "id": "projfiles", "type": "database", "label": "프로젝트 문서", "sublabel": "PRD·AGENTS·docs", "pos": [410, 590], "size": [150, 64],
+      "sources": [
+        { "path": "src/harness_fusion/context.py", "line": 44, "end_line": 57, "label": "문서 읽기" },
+        { "path": "src/harness_fusion/engine.py", "line": 38, "end_line": 52, "label": "문서 쓰기" }
+      ] }
+  ],
+  "connections": [
+    { "id": "user-to-cli", "from": "user", "to": "cli", "variant": "emphasis" },
+    { "id": "cli-to-engine", "from": "cli", "to": "engine", "label": "run", "variant": "emphasis" },
+    { "id": "engine-to-providers", "from": "engine", "to": "providers", "label": "invoke(role)", "variant": "emphasis", "fromSide": "top", "toSide": "left" },
+    { "id": "providers-to-process", "from": "providers", "to": "process", "label": "argv", "fromSide": "bottom", "toSide": "top" },
+    { "id": "engine-to-process", "from": "engine", "to": "process", "label": "check argv", "fromSide": "right", "toSide": "left" },
+    { "id": "process-to-codex", "from": "process", "to": "codex", "label": "spawn", "fromSide": "right", "toSide": "left" },
+    { "id": "process-to-claude", "from": "process", "to": "claude", "label": "spawn", "fromSide": "right", "toSide": "left" },
+    { "id": "process-to-check", "from": "process", "to": "checkcmd", "label": "spawn", "fromSide": "right", "toSide": "left" },
+    { "id": "engine-to-state", "from": "engine", "to": "state", "label": "save", "fromSide": "bottom", "toSide": "top" },
+    { "id": "engine-to-fs", "from": "engine", "to": "fs", "label": "snapshot", "variant": "security", "fromSide": "bottom", "toSide": "top" },
+    { "id": "engine-to-context", "from": "engine", "to": "context", "label": "build", "fromSide": "bottom", "toSide": "top" },
+    { "id": "engine-to-contracts", "from": "engine", "to": "contracts", "label": "validate", "variant": "security", "fromSide": "bottom", "toSide": "top" },
+    { "id": "context-to-projfiles", "from": "context", "to": "projfiles", "label": "read", "fromSide": "bottom", "toSide": "top" }
+  ],
+  "cards": [
+    { "dot": "violet", "title": "세 역할 (같은 Providers 경로)", "items": [
+      "Planner: PRD를 읽고 작업 계획 JSON만 반환 (read-only)",
+      "Generator: 작업의 touch 범위 안에서만 구현 (workspace-write)",
+      "Evaluator: 소스·검사 결과를 읽고 평가 JSON 반환 (read-only)"
+    ] },
+    { "dot": "cyan", "title": "엔진 상태 흐름", "items": [
+      "NEW → PLANNING → IMPLEMENTING → VERIFYING (작업마다 반복)",
+      "작업 실패 시 max_attempts 안에서 재시도, 소진되면 HALTED",
+      "모든 작업 통과 후 FINAL_CHECK → DONE (모델은 DONE을 쓸 수 없음)"
+    ] },
+    { "dot": "rose", "title": "완료 게이트 (모두 만족해야 통과)", "items": [
+      "검사가 1개 이상이고 전부 종료 코드 0",
+      "평가 토큰·task_id 일치, verdict PASS, 점수 2/3 이상",
+      "issues 비어 있음, 모든 acceptance 기준 passed",
+      "검사 전후 소스 변경·touch 위반·시간 초과는 즉시 중단"
+    ] },
+    { "dot": "amber", "title": "모듈 (src/harness_fusion)", "items": [
+      "cli · config · engine · context · providers",
+      "contracts · filesystem · process · verification · demo"
+    ] }
+  ]
+}

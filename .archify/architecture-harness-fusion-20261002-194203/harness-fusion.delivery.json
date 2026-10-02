@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "475aa042-15fd-4366-a4fe-56d2518aceb9",
+  "status": "current",
+  "command": "deliver",
+  "type": "architecture",
+  "input": "C:\\claude-api\\harness-fusion\\.archify\\architecture-harness-fusion-20261002-194203\\candidate.json",
+  "output": "C:\\claude-api\\harness-fusion\\.archify\\architecture-harness-fusion-20261002-194203\\harness-fusion.html",
+  "specification": {
+    "sha256": "84640c1384f0b4cfdcadef72197500785aff0ed0fc12180ccb03caf41f6161a5",
+    "bytes": 7966
+  },
+  "artifact": {
+    "sha256": "d4ae67b85fcb37319402ab54c756fd0288aa8531012d88969fd2e63a993dac0e",
+    "bytes": 776539
+  }
+}

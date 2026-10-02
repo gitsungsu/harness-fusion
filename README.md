@@ -46,11 +46,12 @@ python3 -m venv .venv
 1. 이 하네스와 별도로 Codex CLI 또는 Claude Code를 설치하고 로그인합니다.
 2. 새 작업 폴더에 프로젝트 설정을 만듭니다.
 3. `docs/PRD.md`에 만들 내용과 완료 기준을 적습니다.
-4. `harness.toml`의 모델과 검사 명령을 확인하고 실행합니다.
+4. `agents.toml`의 에이전트별 모델과 `harness.toml`의 검사 명령을 확인하고 실행합니다.
 
 ```powershell
 .\.venv\Scripts\harness-fusion.exe init ..\my-project --backend codex --profile python
 notepad ..\my-project\docs\PRD.md
+notepad ..\my-project\agents.toml
 notepad ..\my-project\harness.toml
 .\.venv\Scripts\harness-fusion.exe doctor ..\my-project
 .\.venv\Scripts\harness-fusion.exe run ..\my-project
@@ -70,22 +71,91 @@ list_tasks(database)는 삽입 순서대로 (ID, 제목) 목록을 반환한다.
 임시 DB를 사용하는 자동 테스트로 위 동작과 재접속 후 영속성을 확인한다.
 ```
 
-역할마다 다른 CLI를 쓸 수 있습니다.
+역할마다 다른 CLI·모델을 쓰려면 `agents.toml`을 고칩니다(아래 "에이전트와 모델 설정" 참고).
+
+## 에이전트와 모델 설정 (agents.toml)
+
+하네스 실행(`run`)에는 **세 에이전트**가 있고, 그 밖에 PRD를 인터뷰로 작성하는 `bootstrap` 에이전트가 있습니다.
+프로젝트 루트의 `agents.toml`에서 에이전트별로 CLI·모델·effort를 따로 지정합니다.
+`init`이 이 파일을 만들며, 사용자 전역 CLI 설정이 바뀌어도 같은 조건으로 실행하기 위해 모델과 effort를 명시합니다.
+
+| 에이전트 | 하는 일 | 권한 |
+|---|---|---|
+| `planner` | PRD를 읽고 작업 계획(JSON)을 만든다 | 읽기 전용, 파일 수정 시 중단 |
+| `generator` | 현재 작업의 `touch` 범위 안에서 구현하고 테스트를 쓴다 | 쓰기 가능(범위 밖·보호 파일 수정 시 중단) |
+| `evaluator` | 소스와 실제 검사 결과를 읽고 평가(JSON)를 낸다. 마지막 전체 평가도 담당 | 읽기 전용, 파일 수정 시 중단 |
+| `bootstrap` | `harness-fusion prd`에서 사용자와 대화하며 `docs/PRD.md`를 쓴다. `run`에는 참여하지 않음 | 프로젝트 읽기 + PRD 쓰기만 자동 허용, 다른 파일이 바뀌면 실패 처리 |
 
 ```toml
-[agents.planner]
-backend = "codex"
-# model = "계정에서-사용-가능한-모델-ID"
-
-[agents.generator]
+[planner]
 backend = "claude"
+model = "claude-sonnet-5-5"   # init 기본값: planner는 claude
+effort = "high"               # low | medium | high | xhigh | max
 
-[agents.evaluator]
+[generator]
+backend = "codex"             # init --backend 값(codex 또는 claude)
+model = "gpt-6.1-sol"
+effort = "medium"
+
+[evaluator]
 backend = "codex"
+model = "gpt-6.1-sol"
+effort = "medium"
+
+[bootstrap]                   # PRD 인터뷰 전용. 대화형이라 claude만 가능
+backend = "claude"
+model = "claude-opus-5-5"
+effort = "high"
 ```
 
-모델을 지정하지 않으면 각 CLI 기본값을 사용합니다. Generator와 Evaluator에 다른 모델을 배정하면
-평가 관점을 나눌 수 있지만, 그것만으로 평가 정확성을 보장하지는 않습니다.
+- 세 섹션(`planner`, `generator`, `evaluator`)이 모두 있어야 하고, 알 수 없는 섹션·키는 오류입니다. `[bootstrap]`은 선택입니다.
+- `init --backend`는 generator·evaluator에 적용되고, planner는 기본값이 claude입니다. 다른 CLI를 쓰려면 파일을 직접 고치세요.
+  `backend`는 `codex`, `claude`, `command`(스크립트용) 중 하나입니다.
+- `agents.toml`이 있으면 `harness.toml`에는 `[agents]`를 쓸 수 없습니다(둘 다 있으면 오류). 정의를 한 곳에만 두기 위해서입니다.
+  `agents.toml`이 없는 기존 프로젝트는 `harness.toml`의 `[agents.*]`를 그대로 읽습니다.
+- `agents.toml`은 에이전트가 수정할 수 없는 보호 파일이고, 바꾸면 이전 실행에 이어 붙일 수 없습니다(새 프로젝트 폴더에서 시작).
+  `doctor`가 에이전트 정의가 어느 파일에 있는지 보여 줍니다.
+- 모델을 지정하지 않으면 각 CLI 기본값을 쓰며, Generator와 Evaluator에 다른 모델을 배정하면 평가 관점을 나눌 수 있지만
+  그것만으로 평가 정확성을 보장하지는 않습니다.
+- Codex는 `-c model_reasoning_effort="..."`, Claude는 `--effort ...`로 전달합니다. 지정한 값은 `events.jsonl`에 기록됩니다.
+- `ultra`는 Codex가 자동으로 작업을 위임(subagent)하는 수준이라 이 하네스의 "subagent 금지" 규칙과 충돌해 거부합니다.
+- `backend = "command"`에는 effort를 쓸 수 없습니다. 허용 값은 CLI 버전·모델에 따라 다를 수 있으니 거부되면 CLI 안내를 확인하세요.
+
+## PRD 인터뷰 (`prd`, bootstrap 에이전트)
+
+PRD를 직접 쓰기 어렵다면, 하네스가 Claude 대화 세션을 열어 질문을 하나씩 하며 `docs/PRD.md`를 써 줍니다.
+
+```powershell
+.\.venv\Scripts\harness-fusion.exe init ..\my-project
+.\.venv\Scripts\harness-fusion.exe prd ..\my-project
+```
+
+- `agents.toml`의 `[bootstrap]` 설정(기본 `claude-opus-5-5`, effort `high`)으로 대화형 `claude` 세션을 엽니다. 실제 터미널에서만 동작합니다.
+- 프로젝트 읽기와 `docs/PRD.md` 쓰기만 자동 허용합니다. 셸 명령 도구는 주지 않고, 권한 우회 플래그도 쓰지 않습니다.
+  다른 작업을 요청하면 Claude가 권한을 묻는데, 승인하더라도 세션이 끝난 뒤 PRD 외 파일이 바뀌었으면 하네스가 실패로 알립니다(되돌리지는 않음).
+- PRD가 쓰이지 않았거나 `TODO:`가 남아 있으면 실패, 완료 기준·테스트 방법이 빠지면 경고합니다.
+- 이미 `run`을 시작한 프로젝트에서는 거부합니다(PRD를 바꾸면 이전 실행에 이어 붙일 수 없으므로).
+
+## PRD 템플릿과 점검
+
+`init`(목표를 주지 않을 때)은 `목표 / 입력과 출력 / 완료 기준 / 테스트 방법` 섹션이 있는 PRD 템플릿을 만듭니다.
+`TODO:`가 남아 있으면 실행을 시작하지 않습니다. 자유 형식 PRD도 계속 쓸 수 있지만, 완료 기준이나 테스트 방법에 대한
+언급이 없으면 `doctor`와 `run` 시작 때 **경고**만 출력합니다(중단하지 않음). 경고는 단어 검색일 뿐 PRD 품질 보증이 아닙니다.
+
+## 평가셋(bench)
+
+AI가 볼 수 없는 숨은 채점 테스트로 하네스의 DONE 판정을 점검합니다. 과제는 harness-v2의 slugify·wordcount·rpn과
+같은 요구사항·채점 단언이며, 실행 방식만 `uv run`→`python -m`, pytest→unittest로 바꿨습니다(v2 결과와 직접 비교하지 마세요).
+
+```powershell
+.\.venv\Scripts\harness-fusion.exe bench                 # 목록만 출력, 아무것도 실행하지 않음
+.\.venv\Scripts\harness-fusion.exe bench --run --backend codex   # 실제 AI 실행. 사용량을 소모합니다
+.\.venv\Scripts\harness-fusion.exe bench --run --only rpn         # 일부만
+```
+
+결과는 `bench-runs/results.jsonl`에 한 줄씩 추가됩니다(엔진 판정, 숨은 채점, 사이클·시간, 모델·effort, 사용량).
+`verified`는 엔진이 DONE이고 숨은 테스트도 통과한 경우만 true입니다. DONE인데 숨은 테스트가 실패하면 거짓 통과로 보입니다.
+세 개의 작은 과제 결과는 복잡한 프로젝트의 성능을 대표하지 않습니다.
 
 ## 검사 설정
 
@@ -108,6 +178,40 @@ Node 프로필은 `npm test -- --run`, `npm run build`를 초기값으로 만듭
 프로젝트 테스트 도구에 맞게 시작 전에 수정하세요. 임의의 명령이 종료 코드 0을 반환하는 것만으로
 테스트 내용의 충실함을 보장할 수는 없습니다.
 
+## 사전 준비(setup)
+
+AI 에이전트는 의존성을 설치하지 못합니다. 프로젝트에 필요한 설치·준비는 사람이 `harness.toml`에 선언하고,
+하네스가 **새 실행의 계획 단계 전에 한 번** 실행합니다. 셸 문자열이 아니라 인자 배열만 허용합니다.
+
+```toml
+[[setup]]
+name = "install"
+command = ["{python}", "-m", "pip", "install", "-r", "requirements.txt"]
+timeout = 600   # 선택, 초 단위. 기본 600
+```
+
+- 실패·시간 초과면 에이전트를 부르기 전에 중단합니다(종료 코드 2). 성공한 setup은 상태에 기록해 `--resume`에서 다시 실행하지 않습니다.
+  실패한 setup은 완료되지 않았으므로 `--resume`에서 다시 시도합니다.
+- 실행 기록은 `.fusion/setup/`과 `events.jsonl`에 남습니다. `doctor`가 실행 파일 존재를 확인합니다.
+- `harness.toml`을 바꾸면 이전 실행에 이어 붙일 수 없습니다. 명령은 신뢰하는 로컬 명령으로 취급합니다.
+- 에이전트가 설치하게 하는 기능은 없습니다. `.venv`·`node_modules`는 수정 감시에서 제외되어 있어 setup이 채워도 범위 위반이 아닙니다.
+
+## 수용 테스트 보호 폴더(선택)
+
+사람이 쓴 테스트를 에이전트가 고치지 못하게 하려면 `init`에 `--acceptance`를 붙입니다
+(또는 `harness.toml`에 `[acceptance] path = "acceptance"` 추가).
+
+```powershell
+.\.venv\Scripts\harness-fusion.exe init ..\my-project --acceptance
+```
+
+- 폴더 안에 `test*.py` 등 사람이 쓴 테스트를 넣으세요. README.md만 있으면 실행을 시작하지 않습니다.
+- 모든 역할(Planner·Generator·Evaluator)이 이 폴더를 수정·추가·삭제할 수 없습니다. 계획의 `touch`에 넣어도 막힙니다.
+- 실행 시작 시 폴더 내용의 해시를 기록하고, 에이전트 호출·검사 뒤마다, 그리고 `--resume` 때 다시 비교해 달라졌으면 중단합니다.
+- 폴더의 테스트는 **필수 검사에 자동으로 추가**됩니다(이름 `acceptance`). 테스트 0개나 전부 건너뛴 경우는 실패입니다.
+- 한계: 파일 내용 비교 방식입니다. OS 보안 경계나 컨테이너 격리가 아니며, 테스트가 프로젝트 코드를 실행하는 점은 그대로입니다.
+  사람이 직접 수정하면 해시가 달라져 이전 실행을 이어갈 수 없으니 새 프로젝트 폴더에서 시작하세요.
+
 ## 상태 확인과 재개
 
 ```powershell
@@ -115,6 +219,11 @@ Node 프로필은 `npm test -- --run`, `npm run build`를 초기값으로 만듭
 .\.venv\Scripts\harness-fusion.exe run ..\my-project --resume
 ```
 
+- `status`는 역할별 호출 수·소요 시간과, Claude가 제공하는 토큰·비용(`cost_usd`)을 `usage`로 보여 줍니다.
+  Codex 사용량·잔여량은 CLI가 제공하지 않아 호출 수와 시간만 나옵니다.
+- AI 계정의 **사용량 한도**를 만나면 중단 사유가 `USAGE_LIMIT:`으로 시작하고, CLI가 알려 준 해제 시각(있을 때)과
+  `--resume` 안내를 남깁니다(`status`의 `halt_kind`·`retry_hint`). 한도로 끊긴 시도는 재시도 횟수에서 차감하지 않습니다.
+  한도 판별은 CLI 오류 문구에 의존하는 최선의 방법이라, CLI 버전이 바뀌어 문구가 달라지면 일반 실패로 보일 수 있습니다.
 - 작업 성공: 종료 코드 `0`. 실패·미완료·한도 도달: `2`. 키보드 중단: `130`.
 - 사이클 제한은 한 번의 실행에 적용됩니다. 재시도 제한은 저장된 작업 전체에 적용됩니다.
 - 중단 시 진행 상황을 저장하며 같은 역할 호출의 토큰 스트림을 복구하지는 않습니다.
@@ -124,7 +233,8 @@ Node 프로필은 `npm test -- --run`, `npm run build`를 초기값으로 만듭
 
 | 파일 | 목적 |
 |---|---|
-| `harness.toml` | 모델·검사·시간·시도 한도 |
+| `agents.toml` | 에이전트별 CLI·모델·effort |
+| `harness.toml` | 검사·시간·시도 한도·setup·수용 테스트 |
 | `docs/PRD.md` | 사람이 정의한 요구사항 |
 | `AGENTS.md` | 프로젝트의 작업 규칙 |
 | `docs/PLAN.md`, `docs/TASKS.md` | 계획·완료 기준·진행 상황 |
