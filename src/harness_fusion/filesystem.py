@@ -1,0 +1,109 @@
+"""Content-based change detection; independent of Git dirty status."""
+import hashlib
+import json
+import os
+import stat
+from contextlib import contextmanager
+from pathlib import Path, PurePosixPath
+
+EXCLUDED = {".git", ".venv", "venv", "node_modules", "__pycache__", ".pytest_cache", ".ruff_cache"}
+
+
+def atomic_json(path, data):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(path.name + ".tmp")
+    with temp.open("w", encoding="utf-8") as stream:
+        json.dump(data, stream, ensure_ascii=False, indent=2)
+        stream.write("\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.replace(temp, path)
+
+
+def snapshot(root):
+    result = {}
+    for directory, dirs, files in os.walk(root, followlinks=False):
+        for name in list(dirs):
+            p = Path(directory) / name
+            if name in EXCLUDED:
+                dirs.remove(name)
+            elif p.is_symlink():
+                raise ValueError(f"Directory symlinks are unsupported: {p}")
+        for name in files:
+            p = Path(directory) / name
+            relative = p.relative_to(root).as_posix()
+            metadata = p.lstat()
+            if not stat.S_ISREG(metadata.st_mode):
+                raise ValueError(f"Only regular project files supported: {relative}")
+            if relative == ".fusion/lock":
+                # Windows byte-range locks prohibit reading the locked byte.
+                # Keep identity/metadata surveillance without opening this one file.
+                result[relative] = "lock:" + repr((metadata.st_dev, metadata.st_ino,
+                    metadata.st_mode, metadata.st_size, metadata.st_mtime_ns, metadata.st_ctime_ns))
+                continue
+            digest = hashlib.sha256()
+            with p.open("rb") as stream:
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            result[relative] = f"{stat.S_IMODE(metadata.st_mode)}:{digest.hexdigest()}"
+    return result
+
+
+def changes(before, after):
+    return sorted(p for p in before.keys() | after.keys() if before.get(p) != after.get(p))
+
+
+def matches(path, rule):
+    # Folder rules are recursive; * is a single path segment, never cross-directory.
+    if rule.endswith("/**"):
+        return path.startswith(rule[:-2])
+    if rule.endswith("/"):
+        return path.startswith(rule)
+    return len(PurePosixPath(path).parts) == len(PurePosixPath(rule).parts) and PurePosixPath(path).match(rule)
+
+
+def protected(path):
+    return (path.startswith((".fusion/", ".git/", ".env")) or path in
+            {"harness.toml", "AGENTS.md", "CLAUDE.md", "docs/PRD.md", "docs/PLAN.md",
+             "docs/TASKS.md", "docs/MEMORY.md", "docs/IMPLEMENT.md", "docs/REVIEW.md"})
+
+
+def violations(changed, role, touch):
+    if role != "generator":
+        return changed
+    return [p for p in changed if protected(p) or not any(matches(p, rule) for rule in touch)]
+
+
+def code_digest(root):
+    items = {p: h for p, h in snapshot(root).items() if not p.startswith(".fusion/")
+             and p not in {"docs/PLAN.md", "docs/TASKS.md", "docs/MEMORY.md", "docs/IMPLEMENT.md", "docs/REVIEW.md"}}
+    return hashlib.sha256(json.dumps(items, sort_keys=True).encode()).hexdigest()
+
+
+@contextmanager
+def project_lock(root):
+    path = root / ".fusion" / "lock"
+    path.parent.mkdir(exist_ok=True)
+    with path.open("a+b") as stream:
+        if path.stat().st_size == 0:
+            stream.write(b"0")
+            stream.flush()
+        stream.seek(0)
+        try:
+            if os.name == "nt":
+                import msvcrt
+                msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            raise RuntimeError("Another harness is running in this project") from exc
+        try:
+            yield
+        finally:
+            stream.seek(0)
+            if os.name == "nt":
+                msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(stream, fcntl.LOCK_UN)

@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "harness-fusion"
+version = "0.1.0"
+description = "A verifiable, resumable Planner–Generator–Evaluator coding harness"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+license = "MIT"
+
+[project.scripts]
+harness-fusion = "harness_fusion.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
