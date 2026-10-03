@@ -1,8 +1,9 @@
-"""Interactive PRD interview: a live claude session that may write docs/PRD.md and nothing else.
+"""Interactive PRD interview: a live claude session that writes docs/PRD.md, then offers project skills.
 
 The conversation needs a real terminal, so only the claude CLI qualifies (see [bootstrap] in agents.toml).
-The harness never auto-approves anything beyond reading the project and editing the PRD, and it checks
-afterwards that no other file changed.
+The harness auto-approves only reading the project, editing the PRD and searching for skills; installing a
+skill (`npx skills add`) always needs the user's approval at claude's permission prompt. Afterwards it checks
+that nothing changed except the PRD and the project skill folders.
 """
 import subprocess
 
@@ -10,13 +11,16 @@ from . import config, filesystem as fs
 from .process import resolve_command
 
 PRD = "docs/PRD.md"
-TOOLS = "Read,Glob,Grep,Write,Edit"
-ALLOWED = f"Read,Glob,Grep,Write({PRD}),Edit({PRD})"
+TOOLS = "Read,Glob,Grep,Write,Edit,Skill,Bash"
+ALLOWED = f"Read,Glob,Grep,Edit({PRD}),Skill(find-skills),Bash(npx skills find:*)"
+# Where `npx skills add -a claude-code -a codex --copy` writes, plus claude's own "don't ask again" file.
+SKILL_PATHS = (".claude/skills/", ".agents/skills/")
+SKILL_FILES = ("skills-lock.json", ".claude/settings.local.json")
 
 OPENING = ("PRD 작성 인터뷰를 시작해 주세요. 먼저 프로젝트 폴더에 이미 있는 코드와 문서를 읽어 보고, "
            "그다음 저에게 질문을 한 번에 하나씩 해 주세요.")
 
-INSTRUCTIONS = """You are the PRD interviewer for Harness Fusion. Your only deliverable is docs/PRD.md.
+INSTRUCTIONS = """You are the PRD interviewer for Harness Fusion. You write docs/PRD.md, then help the user install project skills.
 
 How to work:
 - Speak Korean. The user may not be a developer; avoid jargon and explain briefly when you must use it.
@@ -32,9 +36,20 @@ What you may do:
 - Write or edit docs/PRD.md only, using the sections: 목표, 입력과 출력, 완료 기준, 테스트 방법
   (add 범위 밖 if needed). Write concrete, testable sentences.
 - The finished file must contain no TODO placeholders.
-- Do not write code, tests, or any other file, and do not run commands. Other files are read-only for you.
+- Do not write code, tests, or any other file. Other files are read-only for you.
 
-When the PRD is saved, tell the user to run `harness-fusion doctor` and then `harness-fusion run` for this project.
+After the PRD is saved — install project skills:
+- Use the find-skills skill if it is available; otherwise follow these steps directly.
+- From the PRD, pick 1-3 search terms (language, framework, test tool) and run `npx skills find <term>`.
+- Prefer well-known sources and skills with many installs; skip anything under 100 installs or from unknown authors.
+- Show the user at most 5 candidates (name, what it does, source, installs) and ask which to install, one question.
+  Installing nothing is a fine answer.
+- Install only what the user chose, into this project, for both agents, as real copies:
+  `npx skills add <owner/repo> -s <skill> -a claude-code -a codex --copy -y`
+  Never use -g (global) and never omit --copy (symlinks break the harness).
+- Run no other commands. Do not change the PRD in this step.
+
+Finally, tell the user to run `harness-fusion doctor` and then `harness-fusion run` for this project.
 """
 
 
@@ -79,9 +94,10 @@ def run(root, runner=None):
     except (OSError, ValueError) as exc:
         print(f"ERROR: could not run the interview: {exc}")
         return 2
-    others = [p for p in changed if p != PRD]
+    skills = [p for p in changed if p.startswith(SKILL_PATHS) or p in SKILL_FILES]
+    others = [p for p in changed if p != PRD and p not in skills]
     if others:
-        print("ERROR: the interview changed files other than docs/PRD.md: " + ", ".join(others)
+        print("ERROR: the interview changed files other than docs/PRD.md and project skills: " + ", ".join(others)
               + ". Nothing was reverted; inspect them before continuing.")
         return 2
     if code != 0:
@@ -96,5 +112,7 @@ def run(root, runner=None):
         return 2
     for warning in config.prd_warnings(text):
         print("WARNING: " + warning)
+    installed = sorted({p.split("/")[2] for p in skills if p.startswith(SKILL_PATHS) and p.count("/") >= 3})
+    print("Project skills: " + (", ".join(installed) if installed else "none installed"))
     print("PRD saved to docs/PRD.md. Next: harness-fusion doctor <project>, then harness-fusion run <project>.")
     return 0

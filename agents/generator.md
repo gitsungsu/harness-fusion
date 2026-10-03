@@ -13,7 +13,7 @@
 - claude: `--tools Read,Glob,Grep,Edit,Write`. 명령 실행(Bash)은 할 수 없습니다.
 - 실행 뒤 하네스가 바뀐 파일을 내용 해시로 비교합니다. 아래 파일이 바뀌어 있으면 중단합니다.
   - 작업의 touch 경로 밖에 있는 파일. 단 빌드 출력(`dist/`, `build/`, `.next/`, `coverage/`)은 예외입니다.
-  - 보호 파일: `harness.toml`, `agents.toml`, `AGENTS.md`, `CLAUDE.md`, `docs/PRD.md`, `docs/PLAN.md`, `docs/TASKS.md`, `docs/MEMORY.md`, `docs/IMPLEMENT.md`, `docs/REVIEW.md`, `.fusion/`, `.git/`, `.env*`
+  - 보호 파일: `harness.toml`, `agents.toml`, `AGENTS.md`, `CLAUDE.md`, `docs/PRD.md`, `docs/PLAN.md`, `docs/TASKS.md`, `docs/MEMORY.md`, `docs/IMPLEMENT.md`, `docs/REVIEW.md`, `.fusion/`, `.git/`, `.env*`, 프로젝트 스킬(`.claude/skills/`, `.agents/skills/`, `skills-lock.json`)
   - `[acceptance]` 폴더(사람이 쓴 수용 테스트)
 
 ## 지시문 (원문)

@@ -4,7 +4,7 @@ import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 
-from harness_fusion import bootstrap, cli
+from harness_fusion import bootstrap, cli, context, filesystem as fs
 from harness_fusion.config import default_agents, initialize, load
 from harness_fusion.contracts import ContractError
 
@@ -77,16 +77,24 @@ class CommandTests(Base):
             self.assertNotIn(flag, command)
         self.assertFalse(any("bypass" in part.lower() for part in command))
 
-    def test_tools_are_limited_to_reading_and_writing_the_prd_only(self):
+    def test_auto_approval_covers_only_reading_the_prd_and_searching_skills(self):
         command = self.command()
         tools = command[command.index("--tools") + 1].split(",")
-        self.assertEqual(sorted(tools), ["Edit", "Glob", "Grep", "Read", "Write"])
+        self.assertEqual(sorted(tools), ["Bash", "Edit", "Glob", "Grep", "Read", "Skill", "Write"])
         allowed = command[command.index("--allowedTools") + 1].split(",")
-        self.assertIn("Write(docs/PRD.md)", allowed)
+        self.assertNotIn("Write(docs/PRD.md)", allowed)  # claude: Edit(path) rules cover every file-editing tool
         self.assertIn("Edit(docs/PRD.md)", allowed)
-        self.assertNotIn("Write", allowed)
-        self.assertNotIn("Edit", allowed)
-        self.assertFalse(any(t.startswith("Bash") for t in tools + allowed))
+        for broad in ("Write", "Edit", "Bash", "Skill"):
+            self.assertNotIn(broad, allowed)
+        # Searching is pre-approved; installing (`npx skills add`) must go through claude's permission prompt.
+        self.assertEqual([t for t in allowed if t.startswith("Bash")], ["Bash(npx skills find:*)"])
+
+    def test_skill_instructions_install_into_the_project_as_copies(self):
+        command = self.command()
+        prompt = command[command.index("--append-system-prompt") + 1]
+        for word in ("find-skills", "npx skills find", "npx skills add", "-a claude-code -a codex", "--copy",
+                     "Never use -g"):
+            self.assertIn(word, prompt)
 
     def test_initial_prompt_is_the_first_argument_after_the_program(self):
         # --allowedTools takes a list; a trailing prompt would be swallowed as a tool name.
@@ -108,6 +116,7 @@ class RunTests(Base):
             if text is not None:
                 (Path(cwd) / "docs/PRD.md").write_text(text, encoding="utf-8")
             for name, content in (extra or {}).items():
+                (Path(cwd) / name).parent.mkdir(parents=True, exist_ok=True)
                 (Path(cwd) / name).write_text(content, encoding="utf-8")
             return returncode
 
@@ -132,6 +141,24 @@ class RunTests(Base):
         runner = self.writer(extra={"calculator.py": "print('hi')\n"})
         self.assertEqual(self.run_bootstrap(runner), 2)
         self.assertIn("calculator.py", self.output)
+
+    def test_installed_project_skills_are_allowed_and_reported(self):
+        runner = self.writer(extra={".claude/skills/pytest-helper/SKILL.md": "name: pytest-helper",
+                                    ".agents/skills/pytest-helper/SKILL.md": "name: pytest-helper",
+                                    "skills-lock.json": "{}",
+                                    ".claude/settings.local.json": "{}"})
+        self.assertEqual(self.run_bootstrap(runner), 0)
+        self.assertIn("Project skills: pytest-helper", self.output)
+
+    def test_no_skills_is_reported_and_still_succeeds(self):
+        self.assertEqual(self.run_bootstrap(self.writer()), 0)
+        self.assertIn("Project skills: none installed", self.output)
+
+    def test_other_claude_files_still_fail_the_run(self):
+        runner = self.writer(extra={".claude/agents/x.md": "x", ".claude/skills/a/SKILL.md": "a"})
+        self.assertEqual(self.run_bootstrap(runner), 2)
+        self.assertIn(".claude/agents/x.md", self.output)
+        self.assertNotIn(".claude/skills/a/SKILL.md", self.output)
 
     def test_changed_agents_file_fails_the_run(self):
         before = (self.root / "agents.toml").read_text(encoding="utf-8")
@@ -181,6 +208,31 @@ class RunTests(Base):
     def test_prd_file_can_be_refined_when_it_already_has_content(self):
         (self.root / "docs/PRD.md").write_text("# 요구사항\n\n초안입니다. 완료 기준 없음.\n", encoding="utf-8")
         self.assertEqual(self.run_bootstrap(self.writer()), 0)
+
+
+class SkillsInRunTests(Base):
+    def add_skill(self, folder, name):
+        path = self.root / folder / name / "SKILL.md"
+        path.parent.mkdir(parents=True)
+        path.write_text(f"name: {name}", encoding="utf-8")
+
+    def test_generator_cannot_change_project_skills_even_inside_touch(self):
+        for path in (".claude/skills/a/SKILL.md", ".agents/skills/a/SKILL.md", "skills-lock.json"):
+            self.assertEqual(fs.violations([path], "generator", [".claude/**", ".agents/**", "skills-lock.json"]),
+                             [path])
+
+    def test_run_context_lists_each_skill_once_claude_copy_first(self):
+        self.add_skill(".claude/skills", "pytest-helper")
+        self.add_skill(".agents/skills", "pytest-helper")
+        self.add_skill(".agents/skills", "codex-only")
+        self.assertEqual(context.installed_skills(self.root),
+                         [".agents/skills/codex-only/SKILL.md", ".claude/skills/pytest-helper/SKILL.md"])
+        prompt = context.build(self.root, "planner", {}, "tok", None, [], 100000)
+        self.assertIn(".claude/skills/pytest-helper/SKILL.md", prompt)
+        self.assertIn("skills_rule", prompt)
+
+    def test_no_skills_means_no_skills_key(self):
+        self.assertNotIn('"skills"', context.build(self.root, "planner", {}, "tok", None, [], 100000))
 
 
 class CliTests(Base):

@@ -235,6 +235,7 @@ context_chars = 48000
 - Read docs/PRD.md before implementation. Explain results in Korean.
 - Work only on the active task and its touch paths. No deployment or git push.
 - Do not edit harness.toml, agents.toml, AGENTS.md, CLAUDE.md, docs/PRD.md or .fusion/.
+- Do not edit project skills (.claude/skills/, .agents/skills/, skills-lock.json); read them when relevant.
 - Do not edit harness-owned PLAN/TASKS/MEMORY/IMPLEMENT/REVIEW documents.
 - Do not edit the human-owned acceptance test folder if harness.toml defines [acceptance].
 - Add behavioral tests for acceptance criteria. Do not weaken tests to get green.

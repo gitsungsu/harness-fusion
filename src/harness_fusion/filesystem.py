@@ -66,8 +66,8 @@ def matches(path, rule):
 
 
 def protected(path):
-    return (path.startswith((".fusion/", ".git/", ".env")) or path in
-            {"harness.toml", "agents.toml", "AGENTS.md", "CLAUDE.md", "docs/PRD.md", "docs/PLAN.md",
+    return (path.startswith((".fusion/", ".git/", ".env", ".claude/skills/", ".agents/skills/")) or path in
+            {"harness.toml", "agents.toml", "AGENTS.md", "CLAUDE.md", "docs/PRD.md", "docs/PLAN.md", "skills-lock.json",
              "docs/TASKS.md", "docs/MEMORY.md", "docs/IMPLEMENT.md", "docs/REVIEW.md"})
 
 

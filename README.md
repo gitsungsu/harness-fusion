@@ -18,7 +18,7 @@ Claude Code·Codex CLI를 역할별로 연결합니다. Python 3.11 이상이 �
 
 ## 가장 빠르게 실행하기 — Windows PowerShell
 
-압축을 풀고 `harness-fusion` 폴더에서 실행합니다.
+저장소를 받은(`git clone`) `harness-fusion` 폴더에서 실행합니다.
 
 ```powershell
 py -3.11 -m venv .venv
@@ -45,12 +45,13 @@ python3 -m venv .venv
 
 1. 이 하네스와 별도로 Codex CLI 또는 Claude Code를 설치하고 로그인합니다.
 2. 새 작업 폴더에 프로젝트 설정을 만듭니다.
-3. `docs/PRD.md`에 만들 내용과 완료 기준을 적습니다.
+3. `docs/PRD.md`에 만들 내용과 완료 기준을 적습니다. 직접 쓰기 어려우면 `prd` 명령으로 대화하며 작성하고,
+   이어서 프로젝트에 필요한 스킬을 골라 설치할 수 있습니다(아래 "PRD 인터뷰" 참고).
 4. `agents.toml`의 에이전트별 모델과 `harness.toml`의 검사 명령을 확인하고 실행합니다.
 
 ```powershell
 .\.venv\Scripts\harness-fusion.exe init ..\my-project --backend codex --profile python
-notepad ..\my-project\docs\PRD.md
+.\.venv\Scripts\harness-fusion.exe prd ..\my-project      # 또는 notepad ..\my-project\docs\PRD.md
 notepad ..\my-project\agents.toml
 notepad ..\my-project\harness.toml
 .\.venv\Scripts\harness-fusion.exe doctor ..\my-project
@@ -88,7 +89,7 @@ list_tasks(database)는 삽입 순서대로 (ID, 제목) 목록을 반환한다.
 | `planner` | PRD를 읽고 작업 계획(JSON)을 만든다 | 읽기 전용, 파일 수정 시 중단 |
 | `generator` | 현재 작업의 `touch` 범위 안에서 구현하고 테스트를 쓴다 | 쓰기 가능(범위 밖·보호 파일 수정 시 중단) |
 | `evaluator` | 소스와 실제 검사 결과를 읽고 평가(JSON)를 낸다. 마지막 전체 평가도 담당 | 읽기 전용, 파일 수정 시 중단 |
-| `bootstrap` | `harness-fusion prd`에서 사용자와 대화하며 `docs/PRD.md`를 쓴다. `run`에는 참여하지 않음 | 프로젝트 읽기 + PRD 쓰기만 자동 허용, 다른 파일이 바뀌면 실패 처리 |
+| `bootstrap` | `harness-fusion prd`에서 사용자와 대화하며 `docs/PRD.md`를 쓰고, 필요한 스킬을 골라 설치한다. `run`에는 참여하지 않음 | 프로젝트 읽기·PRD 쓰기·스킬 검색만 자동 허용, 스킬 설치는 사용자 승인. PRD·스킬 외 파일이 바뀌면 실패 처리 |
 
 프로젝트 `agents.toml` 형식(섹션마다 같은 키):
 
@@ -123,9 +124,28 @@ PRD를 직접 쓰기 어렵다면, 하네스가 Claude 대화 세션을 열어 �
 ```
 
 - `agents.toml`의 `[bootstrap]` 설정으로 대화형 `claude` 세션을 엽니다. 실제 터미널에서만 동작합니다.
-- 프로젝트 읽기와 `docs/PRD.md` 쓰기만 자동 허용합니다. 셸 명령 도구는 주지 않고, 권한 우회 플래그도 쓰지 않습니다.
-  다른 작업을 요청하면 Claude가 권한을 묻는데, 승인하더라도 세션이 끝난 뒤 PRD 외 파일이 바뀌었으면 하네스가 실패로 알립니다(되돌리지는 않음).
-- PRD가 쓰이지 않았거나 `TODO:`가 남아 있으면 실패, 완료 기준·테스트 방법이 빠지면 경고합니다.
+- 진행 순서: ① 질문에 하나씩 답해 `docs/PRD.md` 작성 → ② PRD에 맞는 스킬 검색·추천 → ③ 고른 스킬만 프로젝트에 설치.
+
+### PRD 작성 뒤 스킬 설치
+
+PRD가 저장되면 같은 세션에서 `find-skills` 스킬(없으면 같은 절차를 직접 수행)로 [skills.sh](https://skills.sh/)의 스킬을 찾습니다.
+
+- PRD에서 언어·프레임워크·테스트 도구 같은 검색어를 골라 `npx skills find <검색어>`를 실행합니다(자동 허용).
+- 설치 수가 적거나(100 미만) 출처가 불분명한 스킬은 제외하고, 후보를 최대 5개 보여 준 뒤 설치할 것을 묻습니다.
+  아무것도 설치하지 않아도 됩니다.
+- 설치 명령 `npx skills add <owner/repo> -s <스킬> -a claude-code -a codex --copy -y`는 **자동 허용하지 않습니다.**
+  Claude가 실행 전에 권한을 물으니, 명령을 확인하고 승인하세요. 전역 설치(`-g`)는 쓰지 않습니다.
+- 설치 위치: `.claude/skills/<스킬>/`(Claude용), `.agents/skills/<스킬>/`(Codex용), `skills-lock.json`.
+  하네스는 심볼릭 링크 폴더를 지원하지 않으므로 `--copy`로 실제 파일을 복사합니다.
+- 설치한 스킬은 `run`의 모든 에이전트 요청에 SKILL.md 경로 목록으로 전달되어, 관련 있을 때 읽고 따릅니다.
+  하네스 규칙·출력 형식보다 우선하지 않습니다. 에이전트는 스킬 파일을 수정할 수 없습니다(보호 파일).
+- 스킬은 제3자가 만든 지시문입니다. 설치 전에 출처를 확인하세요. 하네스는 스킬 내용을 검증하지 않습니다.
+
+### 실패·경고
+
+- 셸 도구는 스킬 검색·설치용으로만 쓰도록 지시하고, 권한 우회 플래그는 쓰지 않습니다. 자동 허용 범위 밖의 명령은 Claude가 권한을 묻습니다.
+- 세션이 끝난 뒤 `docs/PRD.md`와 스킬 파일(위 설치 위치, Claude의 `.claude/settings.local.json`) 외에 바뀐 파일이 있으면 실패로 알립니다(되돌리지는 않음).
+- PRD가 쓰이지 않았거나 `TODO:`가 남아 있으면 실패, 완료 기준·테스트 방법이 빠지면 경고합니다. 설치된 스킬 이름을 마지막에 보여 줍니다.
 - 이미 `run`을 시작한 프로젝트에서는 거부합니다(PRD를 바꾸면 이전 실행에 이어 붙일 수 없으므로).
 
 ## PRD 템플릿과 점검
@@ -186,7 +206,7 @@ timeout = 600   # 선택, 초 단위. 기본 600
   실패한 setup은 완료되지 않았으므로 `--resume`에서 다시 시도합니다.
 - 실행 기록은 `.fusion/setup/`과 `events.jsonl`에 남습니다. `doctor`가 실행 파일 존재를 확인합니다.
 - `harness.toml`을 바꾸면 이전 실행에 이어 붙일 수 없습니다. 명령은 신뢰하는 로컬 명령으로 취급합니다.
-- 에이전트가 설치하게 하는 기능은 없습니다. `.venv`·`node_modules`는 수정 감시에서 제외되어 있어 setup이 채워도 범위 위반이 아닙니다.
+- `run`의 에이전트가 의존성을 설치하게 하는 기능은 없습니다. `.venv`·`node_modules`는 수정 감시에서 제외되어 있어 setup이 채워도 범위 위반이 아닙니다.
 - generator가 스스로 빌드해 `dist/`·`build/`·`.next/`·`coverage/`를 만들어도 범위 위반이 아닙니다(빌드 산출물).
 
 ## 단계별 보고와 커밋·푸시
@@ -242,6 +262,7 @@ push = true     # 원격(origin 우선)이 있으면 푸시. commit = true가 �
 | 파일 | 목적 |
 |---|---|
 | `agents.toml` | 에이전트별 CLI·모델·effort |
+| `.claude/skills/`, `.agents/skills/`, `skills-lock.json` | `prd`에서 설치한 프로젝트 스킬(에이전트 수정 불가) |
 | `harness.toml` | 검사·시간·시도 한도·setup·수용 테스트 |
 | `docs/PRD.md` | 사람이 정의한 요구사항 |
 | `AGENTS.md` | 프로젝트의 작업 규칙 |
@@ -255,7 +276,7 @@ push = true     # 원격(origin 우선)이 있으면 푸시. commit = true가 �
 | `.fusion/checks/` | 실제 검사 출력 |
 
 최근 기억은 5개만 전달하고 전체 기록은 남깁니다. 필수 문맥이 예산을 넘으면 조용히 자르는 대신 중단합니다.
-파일 내용 자체를 자동 백업하거나 Git 커밋하지 않으므로 변경 전 복원 지점은 직접 보관하세요.
+`[git]`을 켜면 통과한 작업마다 커밋하지만, 실패한 시도의 변경은 되돌리지 않으므로 시작 전 복원 지점은 직접 보관하세요.
 
 ## 완료 조건
 
@@ -271,8 +292,9 @@ push = true     # 원격(origin 우선)이 있으면 푸시. commit = true가 �
 
 ## 적용 범위와 현재 한계
 
-- 0.1.0은 감독하에 쓰는 로컬 MVP입니다. 실제 Claude·Codex 계정으로 수행하는 통합 검증은 아직 완료하지 않았습니다.
-- Linux/Python 3.12에서 자체 테스트와 프로세스 데모를 실행했습니다. Windows/macOS 실기 검증은 남아 있습니다.
+- 0.1.0은 감독하에 쓰는 로컬 MVP입니다. 작은 과제(bench 3개, Codex·Claude 혼합 루프, 강제 종료 후 재개)로
+  실제 Codex·Claude 계정 실행을 확인했지만, 큰 프로젝트에서의 성능은 검증하지 않았습니다. 자세한 범위는 `docs/VALIDATION.md`.
+- Linux/Python 3.12와 Windows 11/Python 3.12에서 자체 테스트·데모를 실행했고, 실제 AI 실행은 Windows에서 했습니다. macOS 실기 검증은 남아 있습니다.
   Windows·Linux/Python 3.11–3.13 CI 설정을 포함했지만 원격 CI가 실행된 것은 아닙니다.
 - 수정 감시는 파일 내용·권한의 전후 비교입니다. OS 보안 경계가 아니며 읽기·네트워크·폴더 밖 부작용을 차단하지 않습니다.
   `.git`, 가상환경, `node_modules`, 일부 캐시는 감시에서 제외합니다. 생성 뒤 원상복구한 일시적 수정도 잡지 못합니다.
@@ -284,6 +306,7 @@ push = true     # 원격(origin 우선)이 있으면 푸시. commit = true가 �
 - Generator가 수정 가능한 테스트의 충실도는 Evaluator가 검토합니다. 별도 불변 평가셋·컨테이너 격리는 후속 개선 항목입니다.
 - 실행 로그에는 프롬프트·응답·검사 출력이 포함됩니다. 비밀정보가 섞인 작업 기록을 공개 저장소에 올리지 마세요.
 - Claude가 제공하는 사용량/비용 필드는 기록하지만 Codex 사용량과 구독 잔여량은 추정하지 않습니다.
+- `prd`의 대화형 세션과 스킬 설치 단계는 사람이 실제 터미널에서 진행합니다. 자동 테스트는 대체 실행기로 권한 설정과 사후 검사만 확인합니다.
 
 ## 개발
 
@@ -295,4 +318,4 @@ python -m unittest discover -s tests -v
 harness-fusion demo ../fusion-demo-new
 ```
 
-구조 설명은 `docs/ARCHITECTURE.md`, 원본과의 관계는 `docs/SOURCES.md`에 있습니다.
+구조 설명은 `docs/ARCHITECTURE.md`, 에이전트별 역할·권한·지시문은 `agents/`, 원본과의 관계는 `docs/SOURCES.md`에 있습니다.

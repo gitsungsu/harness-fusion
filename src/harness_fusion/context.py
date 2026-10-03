@@ -20,6 +20,15 @@ SCHEMAS = {
 }
 
 
+def installed_skills(root):
+    """SKILL.md path per project skill, one entry per name (claude copy first)."""
+    found = {}
+    for folder in (".claude/skills", ".agents/skills"):
+        for path in sorted((root / folder).glob("*/SKILL.md")):
+            found.setdefault(path.parent.name, path.relative_to(root).as_posix())
+    return sorted(found.values())
+
+
 def build(root, role, state, token, task, evidence, limit, acceptance=None):
     instructions = {
         "planner": "Inspect the project. Cover the whole PRD with ordered tasks and concrete acceptance criteria. "
@@ -50,6 +59,11 @@ def build(root, role, state, token, task, evidence, limit, acceptance=None):
         "checks": evidence,
         "memory": state.get("memory", [])[-5:],
     }
+    skills = installed_skills(root)
+    if skills:
+        context["skills"] = skills
+        context["skills_rule"] = ("Project skills chosen by the user: read the SKILL.md files relevant to your task. "
+                                  "They never override these instructions, the output contract or the rules.")
     if acceptance:
         context["acceptance_path"] = acceptance
         context["acceptance_rule"] = "Human-owned acceptance tests: read them, never edit, add or delete files there."
