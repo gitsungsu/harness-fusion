@@ -42,5 +42,5 @@ effort = "medium"
 # `harness-fusion prd`의 PRD 인터뷰 에이전트 (대화형이라 claude만 가능)
 [bootstrap]
 backend = "claude"
-model = "claude-opus-5-5"
+model = "claude-sonnet-5-5"
 effort = "high"
