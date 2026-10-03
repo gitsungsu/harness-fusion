@@ -285,9 +285,9 @@ push = true     # 원격(origin 우선)이 있으면 푸시. commit = true가 �
 - 실행 로그에는 프롬프트·응답·검사 출력이 포함됩니다. 비밀정보가 섞인 작업 기록을 공개 저장소에 올리지 마세요.
 - Claude가 제공하는 사용량/비용 필드는 기록하지만 Codex 사용량과 구독 잔여량은 추정하지 않습니다.
 
-## 개발·Codex 인계
+## 개발
 
-`HANDOFF.md`를 읽으면 현재 검증 범위와 다음 작업을 이어갈 수 있습니다.
+검증 기록은 `docs/VALIDATION.md`에 있습니다.
 
 ```bash
 python -m pip install -e .
