@@ -7,7 +7,7 @@ import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 
-from harness_fusion.config import initialize, load
+from harness_fusion.config import default_agents, initialize, load
 from harness_fusion.engine import Engine, Halt, render_plan
 from test_contracts import valid_plan
 
@@ -139,11 +139,11 @@ class EngineTests(unittest.TestCase):
             claude = Path(name) / "claude"
             initialize(codex, backend="codex", goal="정수 두 개를 더하는 add 함수를 작성한다.")
             initialize(claude, backend="claude", goal="정수 두 개를 더하는 add 함수를 작성한다.")
-            for role, agent in load(codex)["agents"].items():
-                expected = "claude-sonnet-5-5" if role == "planner" else "gpt-6.1-sol"
-                self.assertEqual(agent["model"], expected, role)
-            for role, agent in load(claude)["agents"].items():
-                self.assertEqual(agent["model"], "claude-sonnet-5-5", role)
+            for root, backend in ((codex, "codex"), (claude, "claude")):
+                expected = default_agents(backend)
+                for role, agent in load(root)["agents"].items():
+                    self.assertTrue(agent.get("model"), role)
+                    self.assertEqual(agent["model"], expected[role]["model"], role)
 
     def test_total_timeout_blocks_completion(self):
         engine = Engine(self.root, invoke=FakeAgent())

@@ -7,6 +7,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 
 from harness_fusion import bench, cli
+from harness_fusion.config import default_agents
 from test_engine import FakeAgent
 
 REFERENCE = {
@@ -171,7 +172,8 @@ class RunTests(unittest.TestCase):
                     "agents", "prd_sha256", "project", "time", "usage"):
             self.assertIn(key, saved)
         self.assertEqual(saved["agents"]["planner"]["backend"], "codex")
-        self.assertEqual(saved["agents"]["planner"]["model"], "gpt-6.1-sol")
+        expected = default_agents("codex", uniform=True)["planner"]
+        self.assertEqual(saved["agents"]["planner"]["model"], expected["model"])
 
     def test_false_pass_is_visible(self):
         with redirect_stdout(io.StringIO()):

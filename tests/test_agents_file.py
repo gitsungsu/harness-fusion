@@ -6,7 +6,8 @@ from contextlib import redirect_stdout
 from pathlib import Path
 
 from harness_fusion import cli, filesystem as fs
-from harness_fusion.config import initialize, load
+from harness_fusion import config
+from harness_fusion.config import default_agents, initialize, load
 from harness_fusion.contracts import ContractError
 from harness_fusion.engine import Engine, Halt
 from harness_fusion.providers import command_for
@@ -64,17 +65,36 @@ class FileLayoutTests(Base):
             self.assertIn(f"[{role}]", text)
 
     def test_template_values_load(self):
-        agents = load(self.root)["agents"]
-        self.assertEqual(agents["planner"], {"backend": "claude", "model": "claude-sonnet-5-5", "effort": "high"})
-        for role in ("generator", "evaluator"):
-            self.assertEqual(agents[role], {"backend": "codex", "model": "gpt-6.1-sol", "effort": "medium"}, role)
+        expected = default_agents("codex")
+        self.assertEqual(load(self.root)["agents"], {r: expected[r] for r in ("planner", "generator", "evaluator")})
+        self.assertEqual(load(self.root)["bootstrap"], expected["bootstrap"])
 
     def test_uniform_template_uses_one_backend_for_every_role(self):
         other = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.addCleanup(other.cleanup)
         initialize(Path(other.name) / "p", backend="codex", goal=GOAL, uniform=True)
+        generator = default_agents("codex")["generator"]
         for role, agent in load(Path(other.name) / "p")["agents"].items():
-            self.assertEqual((agent["backend"], agent["model"], agent["effort"]), ("codex", "gpt-6.1-sol", "medium"), role)
+            self.assertEqual(agent, generator, role)
+
+    def test_defaults_file_is_the_single_source_for_new_projects(self):
+        other = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.addCleanup(other.cleanup)
+        custom = Path(other.name) / "defaults.toml"
+        custom.write_text('[models]\ncodex = "c-model"\nclaude = "k-model"\n'
+                          '[planner]\nbackend = "init"\neffort = "low"\n'
+                          '[generator]\nbackend = "claude"\nmodel = "pinned"\n'
+                          '[evaluator]\nbackend = "init"\neffort = "max"\n'
+                          '[bootstrap]\nbackend = "claude"\n', encoding="utf-8")
+        original = config.DEFAULT_AGENTS
+        config.DEFAULT_AGENTS = custom
+        self.addCleanup(setattr, config, "DEFAULT_AGENTS", original)
+        initialize(Path(other.name) / "p", backend="codex", goal=GOAL)
+        loaded = load(Path(other.name) / "p")
+        self.assertEqual(loaded["agents"], {"planner": {"backend": "codex", "model": "c-model", "effort": "low"},
+                                            "generator": {"backend": "claude", "model": "pinned"},
+                                            "evaluator": {"backend": "codex", "model": "c-model", "effort": "max"}})
+        self.assertEqual(loaded["bootstrap"], {"backend": "claude", "model": "k-model"})
 
     def test_each_agent_can_use_its_own_backend_model_and_effort(self):
         (self.root / "agents.toml").write_text(THREE_MODELS, encoding="utf-8")

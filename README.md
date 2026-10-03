@@ -79,6 +79,10 @@ list_tasks(database)는 삽입 순서대로 (ID, 제목) 목록을 반환한다.
 프로젝트 루트의 `agents.toml`에서 에이전트별로 CLI·모델·effort를 따로 지정합니다.
 `init`이 이 파일을 만들며, 사용자 전역 CLI 설정이 바뀌어도 같은 조건으로 실행하기 위해 모델과 effort를 명시합니다.
 
+**모델 기본값은 [`src/harness_fusion/default_agents.toml`](src/harness_fusion/default_agents.toml) 한 곳에서만 정합니다.**
+새 프로젝트의 모델을 바꾸려면 이 파일을, 이미 만든 프로젝트는 그 프로젝트의 `agents.toml`을 고칩니다.
+문서에는 모델 이름을 적지 않으므로 현재 기본값은 이 파일이나 `doctor` 출력에서 확인하세요.
+
 | 에이전트 | 하는 일 | 권한 |
 |---|---|---|
 | `planner` | PRD를 읽고 작업 계획(JSON)을 만든다 | 읽기 전용, 파일 수정 시 중단 |
@@ -86,30 +90,18 @@ list_tasks(database)는 삽입 순서대로 (ID, 제목) 목록을 반환한다.
 | `evaluator` | 소스와 실제 검사 결과를 읽고 평가(JSON)를 낸다. 마지막 전체 평가도 담당 | 읽기 전용, 파일 수정 시 중단 |
 | `bootstrap` | `harness-fusion prd`에서 사용자와 대화하며 `docs/PRD.md`를 쓴다. `run`에는 참여하지 않음 | 프로젝트 읽기 + PRD 쓰기만 자동 허용, 다른 파일이 바뀌면 실패 처리 |
 
+프로젝트 `agents.toml` 형식(섹션마다 같은 키):
+
 ```toml
-[planner]
-backend = "claude"
-model = "claude-sonnet-5-5"   # init 기본값: planner는 claude
+[planner]                     # generator, evaluator, bootstrap도 같은 형식
+backend = "claude"            # codex | claude | command
+model = "<모델 ID>"
 effort = "high"               # low | medium | high | xhigh | max
-
-[generator]
-backend = "codex"             # init --backend 값(codex 또는 claude)
-model = "gpt-6.1-sol"
-effort = "medium"
-
-[evaluator]
-backend = "codex"
-model = "gpt-6.1-sol"
-effort = "medium"
-
-[bootstrap]                   # PRD 인터뷰 전용. 대화형이라 claude만 가능
-backend = "claude"
-model = "claude-opus-5-5"
-effort = "high"
 ```
 
 - 세 섹션(`planner`, `generator`, `evaluator`)이 모두 있어야 하고, 알 수 없는 섹션·키는 오류입니다. `[bootstrap]`은 선택입니다.
-- `init --backend`는 generator·evaluator에 적용되고, planner는 기본값이 claude입니다. 다른 CLI를 쓰려면 파일을 직접 고치세요.
+- `default_agents.toml`에서 `backend = "init"`인 역할은 `init --backend` 값을 따르고, `model`을 생략한 역할은 `[models]`의 backend별 모델을 씁니다.
+  `init --uniform`(bench가 사용)은 세 역할 모두 generator 설정을 씁니다. `[bootstrap]`은 대화형이라 claude만 가능합니다.
   `backend`는 `codex`, `claude`, `command`(스크립트용) 중 하나입니다.
 - `agents.toml`이 있으면 `harness.toml`에는 `[agents]`를 쓸 수 없습니다(둘 다 있으면 오류). 정의를 한 곳에만 두기 위해서입니다.
   `agents.toml`이 없는 기존 프로젝트는 `harness.toml`의 `[agents.*]`를 그대로 읽습니다.
@@ -130,7 +122,7 @@ PRD를 직접 쓰기 어렵다면, 하네스가 Claude 대화 세션을 열어 �
 .\.venv\Scripts\harness-fusion.exe prd ..\my-project
 ```
 
-- `agents.toml`의 `[bootstrap]` 설정(기본 `claude-opus-5-5`, effort `high`)으로 대화형 `claude` 세션을 엽니다. 실제 터미널에서만 동작합니다.
+- `agents.toml`의 `[bootstrap]` 설정으로 대화형 `claude` 세션을 엽니다. 실제 터미널에서만 동작합니다.
 - 프로젝트 읽기와 `docs/PRD.md` 쓰기만 자동 허용합니다. 셸 명령 도구는 주지 않고, 권한 우회 플래그도 쓰지 않습니다.
   다른 작업을 요청하면 Claude가 권한을 묻는데, 승인하더라도 세션이 끝난 뒤 PRD 외 파일이 바뀌었으면 하네스가 실패로 알립니다(되돌리지는 않음).
 - PRD가 쓰이지 않았거나 `TODO:`가 남아 있으면 실패, 완료 기준·테스트 방법이 빠지면 경고합니다.

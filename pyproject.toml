@@ -16,3 +16,6 @@ harness-fusion = "harness_fusion.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+harness_fusion = ["default_agents.toml"]

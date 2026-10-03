@@ -156,33 +156,40 @@ def argv(value):
     return [sys.executable if item == "{python}" else item for item in value]
 
 
-MODEL_LINES = {
-    "codex": 'model = "gpt-6.1-sol"  # needs a Codex CLI whose model list includes it; change if unavailable',
-    "claude": 'model = "claude-sonnet-5-5"  # pinned model ID; change if your account cannot use it',
-}
+DEFAULT_AGENTS = Path(__file__).with_name("default_agents.toml")
+
+
+def default_agents(backend, uniform=False):
+    """Resolved defaults for init from default_agents.toml, the single place model defaults live.
+    uniform gives every run role the generator's settings, so all of them use `backend`."""
+    data = tomllib.loads(DEFAULT_AGENTS.read_text(encoding="utf-8"))
+    models = data.pop("models")
+    resolved = {}
+    for role in ROLES + ("bootstrap",):
+        cfg = dict(data["generator"] if uniform and role in ROLES else data[role])
+        if cfg["backend"] == "init":
+            cfg["backend"] = backend
+        if "model" not in cfg and cfg["backend"] in models:
+            cfg["model"] = models[cfg["backend"]]
+        resolved[role] = {key: cfg[key] for key in ("backend", "model", "effort") if key in cfg}
+    return resolved
 
 
 def agents_template(backend, uniform=False):
-    """agents.toml for a new project. The planner defaults to claude sonnet high unless uniform."""
+    """agents.toml for a new project, rendered from default_agents.toml."""
     lines = [
         "# Backend, model and effort for each agent. One section per role.",
         "# backend: codex | claude | command   effort: low | medium | high | xhigh | max",
         "# Agents are defined only here (not in harness.toml). Changing this file starts a new run.",
-        "# init --backend sets generator and evaluator; the planner defaults to claude.",
+        "# Initial values come from harness_fusion/default_agents.toml; edit here for this project only.",
     ]
-    for role in ROLES:
-        if role == "planner" and not uniform:
-            lines += ["", "[planner]", 'backend = "claude"', MODEL_LINES["claude"], 'effort = "high"']
+    for role, cfg in default_agents(backend, uniform).items():
+        if role == "bootstrap":
+            lines += ["", "# Interview agent for `harness-fusion prd` (interactive, so claude only; not part of a run)."]
         else:
-            lines += ["", f"[{role}]", f'backend = "{backend}"', MODEL_LINES[backend], 'effort = "medium"']
-    lines += [
-        "",
-        "# Interview agent for `harness-fusion prd` (interactive, so claude only; not part of a run).",
-        "[bootstrap]",
-        'backend = "claude"',
-        'model = "claude-opus-5-5"',
-        'effort = "high"',
-    ]
+            lines.append("")
+        lines.append(f"[{role}]")
+        lines += [f'{key} = "{value}"' for key, value in cfg.items()]
     return "\n".join(lines) + "\n"
 
 

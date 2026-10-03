@@ -6,7 +6,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 
 from harness_fusion import cli, config
-from harness_fusion.config import initialize, load, prd_warnings
+from harness_fusion.config import default_agents, initialize, load, prd_warnings
 from harness_fusion.contracts import ContractError
 from harness_fusion.engine import Engine
 from harness_fusion.providers import command_for
@@ -40,7 +40,8 @@ class EffortConfigTests(unittest.TestCase):
                 root = self.root / backend
                 initialize(root, backend=backend, goal=GOAL)
                 efforts = {role: agent["effort"] for role, agent in load(root)["agents"].items()}
-                self.assertEqual(efforts, {"planner": "high", "generator": "medium", "evaluator": "medium"})
+                defaults = default_agents(backend)
+                self.assertEqual(efforts, {role: defaults[role]["effort"] for role in efforts})
 
     def test_accepts_documented_values(self):
         initialize(self.root / "p", backend="codex", goal=GOAL)
@@ -112,8 +113,9 @@ class EffortEventTests(unittest.TestCase):
             lines = (root / ".fusion/events.jsonl").read_text(encoding="utf-8").splitlines()
             agents = [json.loads(x) for x in lines if '"kind": "agent"' in x]
             self.assertTrue(agents)
+            defaults = default_agents("codex")
             self.assertEqual({(e["role"], e["effort"]) for e in agents},
-                             {("planner", "high"), ("generator", "medium"), ("evaluator", "medium")})
+                             {(role, defaults[role]["effort"]) for role in ("planner", "generator", "evaluator")})
 
 
 class PrdTests(unittest.TestCase):

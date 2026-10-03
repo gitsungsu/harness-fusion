@@ -5,10 +5,11 @@ from contextlib import redirect_stdout
 from pathlib import Path
 
 from harness_fusion import bootstrap, cli
-from harness_fusion.config import initialize, load
+from harness_fusion.config import default_agents, initialize, load
 from harness_fusion.contracts import ContractError
 
 GOAL = "정수 두 개를 더하는 add 함수를 작성하고 2+3=5를 확인한다."
+MODEL = default_agents("codex")["bootstrap"]["model"]
 COMPLETE_PRD = ("# 요구사항\n\n## 목표\nadd 함수를 만든다.\n\n## 입력과 출력\nadd(2,3)==5\n\n"
                 "## 완료 기준\n- add(2,3)==5\n\n## 테스트 방법\n- unittest로 확인\n")
 
@@ -29,9 +30,9 @@ class Base(unittest.TestCase):
 
 
 class ConfigTests(Base):
-    def test_template_defines_bootstrap_as_claude_opus_high(self):
-        self.assertEqual(load(self.root)["bootstrap"],
-                         {"backend": "claude", "model": "claude-opus-5-5", "effort": "high"})
+    def test_template_defines_bootstrap_from_defaults(self):
+        self.assertEqual(load(self.root)["bootstrap"], default_agents("codex")["bootstrap"])
+        self.assertEqual(load(self.root)["bootstrap"]["backend"], "claude")
 
     def test_bootstrap_is_not_one_of_the_engine_roles(self):
         self.assertEqual(sorted(load(self.root)["agents"]), ["evaluator", "generator", "planner"])
@@ -67,7 +68,7 @@ class CommandTests(Base):
     def test_uses_configured_model_and_effort(self):
         command = self.command()
         self.assertEqual(command[0], "claude")
-        self.assertEqual(command[command.index("--model") + 1], "claude-opus-5-5")
+        self.assertEqual(command[command.index("--model") + 1], MODEL)
         self.assertEqual(command[command.index("--effort") + 1], "high")
 
     def test_is_interactive_and_never_bypasses_permissions(self):
@@ -125,7 +126,7 @@ class RunTests(Base):
         runner = self.writer()
         self.run_bootstrap(runner)
         argv = runner.calls[0][0]
-        self.assertEqual(argv[argv.index("--model") + 1], "claude-opus-5-5")
+        self.assertEqual(argv[argv.index("--model") + 1], MODEL)
 
     def test_other_changed_files_fail_the_run(self):
         runner = self.writer(extra={"calculator.py": "print('hi')\n"})
@@ -188,7 +189,7 @@ class CliTests(Base):
         with redirect_stdout(out):
             cli.doctor(self.root)
         self.assertIn("bootstrap: claude", out.getvalue())
-        self.assertIn("claude-opus-5-5", out.getvalue())
+        self.assertIn(MODEL, out.getvalue())
 
     def test_prd_command_needs_an_interactive_terminal(self):
         out = io.StringIO()

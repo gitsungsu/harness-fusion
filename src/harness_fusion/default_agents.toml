@@ -1,0 +1,33 @@
+# 에이전트 기본 모델 설정 — 모델 기본값은 이 파일 한 곳에서만 정합니다.
+# `harness-fusion init`이 이 값으로 새 프로젝트의 agents.toml을 만듭니다.
+# 이미 만든 프로젝트는 영향을 받지 않습니다. 그 프로젝트의 agents.toml을 고치세요.
+#
+# backend: codex | claude | "init" (= init --backend 값을 따름)
+# effort : low | medium | high | xhigh | max   (ultra는 하네스가 거부)
+# model  : 생략하면 아래 [models]에서 backend에 맞는 값을 씁니다.
+
+# backend별 기본 모델
+[models]
+codex = "gpt-6.1-sol"
+claude = "claude-sonnet-5-5"
+
+# PRD를 작업으로 나누는 계획 에이전트 (읽기 전용)
+[planner]
+backend = "claude"
+effort = "high"
+
+# 작업을 구현하는 에이전트
+[generator]
+backend = "init"
+effort = "medium"
+
+# 작업별·최종 검토 에이전트 (읽기 전용)
+[evaluator]
+backend = "init"
+effort = "medium"
+
+# `harness-fusion prd`의 PRD 인터뷰 에이전트 (대화형이라 claude만 가능)
+[bootstrap]
+backend = "claude"
+model = "claude-opus-5-5"
+effort = "high"
