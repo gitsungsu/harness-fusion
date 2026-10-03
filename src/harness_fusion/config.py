@@ -40,7 +40,7 @@ def load(root):
         if not isinstance(cfg, dict) or set(cfg) - {"backend", "model", "effort", "command"}:
             raise ContractError(f"Unknown agent settings: {role}")
         backend = cfg.get("backend")
-        if backend not in ("codex", "claude", "command"):
+        if backend not in ("codex", "claude", "agy", "command"):
             raise ContractError(f"Unknown backend: {backend}")
         if "model" in cfg:
             string(cfg["model"])
@@ -179,7 +179,7 @@ def agents_template(backend, uniform=False):
     """agents.toml for a new project, rendered from default_agents.toml."""
     lines = [
         "# Backend, model and effort for each agent. One section per role.",
-        "# backend: codex | claude | command   effort: low | medium | high | xhigh | max",
+        "# backend: codex | claude | agy | command   effort: low | medium | high | xhigh | max",
         "# Agents are defined only here (not in harness.toml). Changing this file starts a new run.",
         "# Initial values come from harness_fusion/default_agents.toml; edit here for this project only.",
     ]
