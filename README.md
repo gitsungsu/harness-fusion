@@ -50,12 +50,12 @@ python3 -m venv .venv
 4. `agents.toml`의 에이전트별 모델과 `harness.toml`의 검사 명령을 확인하고 실행합니다.
 
 ```powershell
-.\.venv\Scripts\harness-fusion.exe init ..\my-project --backend codex --profile python
-.\.venv\Scripts\harness-fusion.exe prd ..\my-project      # 또는 notepad ..\my-project\docs\PRD.md
-notepad ..\my-project\agents.toml
-notepad ..\my-project\harness.toml
-.\.venv\Scripts\harness-fusion.exe doctor ..\my-project
-.\.venv\Scripts\harness-fusion.exe run ..\my-project
+.\.venv\Scripts\harness-fusion.exe init C:\claude-api\projects\my-project --backend agy --profile python
+.\.venv\Scripts\harness-fusion.exe prd C:\claude-api\projects\my-project      # 대화형 인터뷰로 docs/PRD.md 작성
+notepad C:\claude-api\projects\my-project\agents.toml
+notepad C:\claude-api\projects\my-project\harness.toml
+.\.venv\Scripts\harness-fusion.exe doctor C:\claude-api\projects\my-project
+.\.venv\Scripts\harness-fusion.exe run C:\claude-api\projects\my-project
 ```
 
 `doctor`는 명령의 존재와 설정을 확인합니다. 로그인·모델 접근 권한까지 확인하지는 않습니다.
@@ -119,8 +119,8 @@ effort = "high"               # low | medium | high | xhigh | max
 PRD를 직접 쓰기 어렵다면, 하네스가 Claude 대화 세션을 열어 질문을 하나씩 하며 `docs/PRD.md`를 써 줍니다.
 
 ```powershell
-.\.venv\Scripts\harness-fusion.exe init ..\my-project
-.\.venv\Scripts\harness-fusion.exe prd ..\my-project
+.\.venv\Scripts\harness-fusion.exe init C:\claude-api\projects\my-project --backend agy
+.\.venv\Scripts\harness-fusion.exe prd C:\claude-api\projects\my-project
 ```
 
 - `agents.toml`의 `[bootstrap]` 설정으로 대화형 `claude` 세션을 엽니다. 실제 터미널에서만 동작합니다.
@@ -230,7 +230,7 @@ push = true     # 원격(origin 우선)이 있으면 푸시. commit = true가 �
 (또는 `harness.toml`에 `[acceptance] path = "acceptance"` 추가).
 
 ```powershell
-.\.venv\Scripts\harness-fusion.exe init ..\my-project --acceptance
+.\.venv\Scripts\harness-fusion.exe init C:\claude-api\projects\my-project --backend agy --acceptance
 ```
 
 - 폴더 안에 `test*.py` 등 사람이 쓴 테스트를 넣으세요. README.md만 있으면 실행을 시작하지 않습니다.
