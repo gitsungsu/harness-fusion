@@ -203,7 +203,7 @@ def run_case(name, out_dir, backend="codex", invoke=None):
     if name not in CASES:
         raise ValueError(f"Unknown benchmark case: {name}")
     out_dir = Path(out_dir)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     project = (out_dir / f"{name}-{stamp}").resolve()
     prd = CASES[name]["prd"]
     config.initialize(project, backend=backend, goal=prd, uniform=True)
