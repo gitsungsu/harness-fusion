@@ -9,3 +9,6 @@ build/
 .omc/
 .claude/settings.local.json
 bench-runs/
+.serena/project.yml
+uv.lock
+.serena/.gitignore
