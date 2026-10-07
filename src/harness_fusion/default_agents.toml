@@ -2,18 +2,31 @@
 # `harness-fusion init`이 이 값으로 새 프로젝트의 agents.toml을 만듭니다.
 # 이미 만든 프로젝트는 영향을 받지 않습니다. 그 프로젝트의 agents.toml을 고치세요.
 #
-# backend: codex | claude | "init" (= init --backend 값을 따름)
+# backend: codex | claude | agy | "init" (= init --backend 값을 따름)
 # effort : low | medium | high | xhigh | max   (ultra는 하네스가 거부)
-# model  : 생략하면 아래 [models]에서 backend에 맞는 값을 씁니다.
+# model  : 생략하면 아래 [models]에서 backend에 맞는 값을 씁니다. agy의 모델 ID는 `agy models`로 확인합니다.
 
 # backend별 기본 모델
 [models]
 codex = "gpt-6.1-sol"
 claude = "claude-sonnet-5-5"
+# agy: `--model`에는 effort 접미사(-high 등)가 없는 이름을 쓰세요. effort는 --effort로 따로 전달되고,
+# 접미사 있는 ID와 함께 쓰면 agy가 거부합니다. 모델마다 지원하는 effort가 다릅니다
+# (예: gemini-3.1-pro는 low/high만). `agy models`로 확인하세요.
+agy = "gemini-3.8-flash"
+
+# `agy models`로 확인 가능한 모델 및 지원 effort:
+#   - gemini-3.8-flash (low, medium, high)
+#   - gemini-3.7-flash (low, medium, high)
+#   - gemini-3.6-flash (low, medium, high)
+#   - gemini-3.1-pro   (low, high)
+#   - claude-opus-5-5  (low, medium, high)
+#   - claude-sonnet-5-5 (low, medium, high)
+#   - gpt-oss-120b     (medium)
 
 # PRD를 작업으로 나누는 계획 에이전트 (읽기 전용)
 [planner]
-backend = "claude"
+backend = "init"
 effort = "high"
 
 # 작업을 구현하는 에이전트
@@ -29,5 +42,5 @@ effort = "medium"
 # `harness-fusion prd`의 PRD 인터뷰 에이전트 (대화형이라 claude만 가능)
 [bootstrap]
 backend = "claude"
-model = "claude-opus-5-5"
+model = "claude-sonnet-5-5"
 effort = "high"

@@ -7,6 +7,7 @@ from . import __version__, bench, bootstrap, config
 from .engine import Engine, usage_summary
 from .filesystem import code_digest, snapshot
 from .process import resolve_command
+from .providers import agy_executable
 
 
 def doctor(root):
@@ -21,7 +22,12 @@ def doctor(root):
     where = config.AGENTS_FILE if (root / config.AGENTS_FILE).is_file() else "harness.toml [agents]"
     print(f"agents defined in: {where}")
     for role, agent in cfg["agents"].items():
-        program = config.argv(agent["command"])[0] if agent["backend"] == "command" else agent["backend"]
+        if agent["backend"] == "command":
+            program = config.argv(agent["command"])[0]
+        elif agent["backend"] == "agy":
+            program = agy_executable()
+        else:
+            program = agent["backend"]
         found = available(program)
         print(f"{role}: {program} -> {found or 'NOT FOUND'}")
         okay &= found is not None
@@ -95,7 +101,7 @@ def main(argv=None):
     sub = parser.add_subparsers(dest="action", required=True)
     init = sub.add_parser("init", help="Create project instructions and harness.toml")
     init.add_argument("project", type=Path)
-    init.add_argument("--backend", choices=("codex", "claude"), default="codex")
+    init.add_argument("--backend", choices=("codex", "claude", "agy"), default="codex")
     init.add_argument("--profile", choices=("python", "node"), default="python")
     init.add_argument("--goal", help="Concrete requirements; otherwise edit docs/PRD.md")
     init.add_argument("--acceptance", action="store_true",
@@ -106,7 +112,7 @@ def main(argv=None):
     bench_parser = sub.add_parser("bench", help="List the fixed benchmark cases; --run executes them with real agents")
     bench_parser.add_argument("--run", action="store_true", help="Run cases with real AI CLIs (consumes usage quota)")
     bench_parser.add_argument("--only", nargs="+", choices=sorted(bench.CASES), metavar="CASE")
-    bench_parser.add_argument("--backend", choices=("codex", "claude"), default="codex")
+    bench_parser.add_argument("--backend", choices=("codex", "claude", "agy"), default="codex")
     bench_parser.add_argument("--out", type=Path, default=Path("bench-runs"))
     prd = sub.add_parser("prd", help="Interview you in an interactive claude session and write docs/PRD.md")
     prd.add_argument("project", type=Path)

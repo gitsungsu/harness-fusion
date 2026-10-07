@@ -1,7 +1,7 @@
 # Harness Fusion 0.1.0
 
 **계획 → 구현 → 실제 검사 → 독립 평가 → 전체 프로젝트 검증**을 실행하는 Python 하네스입니다.
-Claude Code·Codex CLI를 역할별로 연결합니다. Python 3.11 이상이 필요하며 런타임 외부 의존성은 없습니다.
+Claude Code·Codex CLI·Google Antigravity(agy)를 역할별로 연결합니다. Python 3.11 이상이 필요하며 런타임 외부 의존성은 없습니다.
 
 두 Awesome 자료집의 설계 원칙과 `harness-v2`의 역할 분리 아이디어를 참고해 새로 구현했습니다.
 자료집에 연결된 도구를 전부 설치하거나 세 저장소의 코드를 합친 제품은 아닙니다.
@@ -43,19 +43,19 @@ python3 -m venv .venv
 
 ## 실제 AI로 프로그램 만들기
 
-1. 이 하네스와 별도로 Codex CLI 또는 Claude Code를 설치하고 로그인합니다.
+1. 이 하네스와 별도로 Codex CLI, Claude Code 또는 Antigravity(agy) CLI를 설치하고 로그인합니다.
 2. 새 작업 폴더에 프로젝트 설정을 만듭니다.
 3. `docs/PRD.md`에 만들 내용과 완료 기준을 적습니다. 직접 쓰기 어려우면 `prd` 명령으로 대화하며 작성하고,
    이어서 프로젝트에 필요한 스킬을 골라 설치할 수 있습니다(아래 "PRD 인터뷰" 참고).
 4. `agents.toml`의 에이전트별 모델과 `harness.toml`의 검사 명령을 확인하고 실행합니다.
 
 ```powershell
-.\.venv\Scripts\harness-fusion.exe init ..\my-project --backend codex --profile python
-.\.venv\Scripts\harness-fusion.exe prd ..\my-project      # 또는 notepad ..\my-project\docs\PRD.md
-notepad ..\my-project\agents.toml
-notepad ..\my-project\harness.toml
-.\.venv\Scripts\harness-fusion.exe doctor ..\my-project
-.\.venv\Scripts\harness-fusion.exe run ..\my-project
+.\.venv\Scripts\harness-fusion.exe init C:\claude-api\projects\my-project --backend agy --profile python
+.\.venv\Scripts\harness-fusion.exe prd C:\claude-api\projects\my-project      # 대화형 인터뷰로 docs/PRD.md 작성
+notepad C:\claude-api\projects\my-project\agents.toml
+notepad C:\claude-api\projects\my-project\harness.toml
+.\.venv\Scripts\harness-fusion.exe doctor C:\claude-api\projects\my-project
+.\.venv\Scripts\harness-fusion.exe run C:\claude-api\projects\my-project
 ```
 
 `doctor`는 명령의 존재와 설정을 확인합니다. 로그인·모델 접근 권한까지 확인하지는 않습니다.
@@ -95,7 +95,7 @@ list_tasks(database)는 삽입 순서대로 (ID, 제목) 목록을 반환한다.
 
 ```toml
 [planner]                     # generator, evaluator, bootstrap도 같은 형식
-backend = "claude"            # codex | claude | command
+backend = "claude"            # codex | claude | agy | command
 model = "<모델 ID>"
 effort = "high"               # low | medium | high | xhigh | max
 ```
@@ -103,14 +103,14 @@ effort = "high"               # low | medium | high | xhigh | max
 - 세 섹션(`planner`, `generator`, `evaluator`)이 모두 있어야 하고, 알 수 없는 섹션·키는 오류입니다. `[bootstrap]`은 선택입니다.
 - `default_agents.toml`에서 `backend = "init"`인 역할은 `init --backend` 값을 따르고, `model`을 생략한 역할은 `[models]`의 backend별 모델을 씁니다.
   `init --uniform`(bench가 사용)은 세 역할 모두 generator 설정을 씁니다. `[bootstrap]`은 대화형이라 claude만 가능합니다.
-  `backend`는 `codex`, `claude`, `command`(스크립트용) 중 하나입니다.
+  `backend`는 `codex`, `claude`, `agy`, `command`(스크립트용) 중 하나입니다.
 - `agents.toml`이 있으면 `harness.toml`에는 `[agents]`를 쓸 수 없습니다(둘 다 있으면 오류). 정의를 한 곳에만 두기 위해서입니다.
   `agents.toml`이 없는 기존 프로젝트는 `harness.toml`의 `[agents.*]`를 그대로 읽습니다.
 - `agents.toml`은 에이전트가 수정할 수 없는 보호 파일이고, 바꾸면 이전 실행에 이어 붙일 수 없습니다(새 프로젝트 폴더에서 시작).
   `doctor`가 에이전트 정의가 어느 파일에 있는지 보여 줍니다.
 - 모델을 지정하지 않으면 각 CLI 기본값을 쓰며, Generator와 Evaluator에 다른 모델을 배정하면 평가 관점을 나눌 수 있지만
   그것만으로 평가 정확성을 보장하지는 않습니다.
-- Codex는 `-c model_reasoning_effort="..."`, Claude는 `--effort ...`로 전달합니다. 지정한 값은 `events.jsonl`에 기록됩니다.
+- Codex는 `-c model_reasoning_effort="..."`, Claude와 agy는 `--effort ...`로 전달합니다. 지정한 값은 `events.jsonl`에 기록됩니다.
 - `ultra`는 Codex가 자동으로 작업을 위임(subagent)하는 수준이라 이 하네스의 "subagent 금지" 규칙과 충돌해 거부합니다.
 - `backend = "command"`에는 effort를 쓸 수 없습니다. 허용 값은 CLI 버전·모델에 따라 다를 수 있으니 거부되면 CLI 안내를 확인하세요.
 
@@ -119,8 +119,8 @@ effort = "high"               # low | medium | high | xhigh | max
 PRD를 직접 쓰기 어렵다면, 하네스가 Claude 대화 세션을 열어 질문을 하나씩 하며 `docs/PRD.md`를 써 줍니다.
 
 ```powershell
-.\.venv\Scripts\harness-fusion.exe init ..\my-project
-.\.venv\Scripts\harness-fusion.exe prd ..\my-project
+.\.venv\Scripts\harness-fusion.exe init C:\claude-api\projects\my-project --backend agy
+.\.venv\Scripts\harness-fusion.exe prd C:\claude-api\projects\my-project
 ```
 
 - `agents.toml`의 `[bootstrap]` 설정으로 대화형 `claude` 세션을 엽니다. 실제 터미널에서만 동작합니다.
@@ -230,7 +230,7 @@ push = true     # 원격(origin 우선)이 있으면 푸시. commit = true가 �
 (또는 `harness.toml`에 `[acceptance] path = "acceptance"` 추가).
 
 ```powershell
-.\.venv\Scripts\harness-fusion.exe init ..\my-project --acceptance
+.\.venv\Scripts\harness-fusion.exe init C:\claude-api\projects\my-project --backend agy --acceptance
 ```
 
 - 폴더 안에 `test*.py` 등 사람이 쓴 테스트를 넣으세요. README.md만 있으면 실행을 시작하지 않습니다.

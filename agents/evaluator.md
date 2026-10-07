@@ -11,6 +11,7 @@
 ## 권한: 읽기 전용
 - codex: `--sandbox read-only`
 - claude: `--tools Read,Glob,Grep`
+- agy: `--mode plan`
 - 실행 뒤 바뀐 파일이 하나라도 있으면 하네스가 중단합니다.
 
 ## 지시문 (원문)
