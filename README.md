@@ -100,6 +100,8 @@ model = "<모델 ID>"
 effort = "high"               # low | medium | high | xhigh | max
 ```
 
+- 역할마다 backend를 섞어 쓸 수 있습니다(예: 계획·구현은 `agy`, 평가는 `claude`). `init`이 만드는 `agents.toml` 머리말에
+  backend별 CLI와 기본 모델 목록이 주석으로 들어 있으니, 프로젝트마다 그 파일의 `backend`·`model`만 고치면 됩니다.
 - 세 섹션(`planner`, `generator`, `evaluator`)이 모두 있어야 하고, 알 수 없는 섹션·키는 오류입니다. `[bootstrap]`은 선택입니다.
 - `default_agents.toml`에서 `backend = "init"`인 역할은 `init --backend` 값을 따르고, `model`을 생략한 역할은 `[models]`의 backend별 모델을 씁니다.
   `init --uniform`(bench가 사용)은 세 역할 모두 generator 설정을 씁니다. `[bootstrap]`은 대화형이라 claude만 가능합니다.
@@ -224,6 +226,23 @@ push = true     # 원격(origin 우선)이 있으면 푸시. commit = true가 �
 - git 저장소가 아니거나 원격이 없거나 푸시가 실패해도 작업 판정은 바뀌지 않고, 출력과 `events.jsonl`(`git`)에 사유를 남깁니다.
 - 저장소와 원격은 사람이 먼저 준비합니다(`git init`, `git remote add origin ...`). `[git]`이 없으면 커밋하지 않습니다.
 
+## 도구 상태 폴더 무시(watch)
+
+하네스는 Planner·Evaluator 단계의 모든 파일 변경과, Generator의 `touch` 밖 변경을 중단 사유로 봅니다.
+편집기 훅(예: oh-my-claudecode의 `.omc/`)이나 CLI 캐시·로그(예: Expo의 `.expo/`)는 에이전트와 무관하게 바뀌므로
+`harness.toml`에 적어 감시와 커밋에서 뺍니다. `init`은 아래 값을 기본으로 넣습니다.
+
+```toml
+[watch]
+ignore = [".omc/", ".expo/"]
+```
+
+- 점(.)으로 시작하고 `/`로 끝나는 폴더만 허용합니다. 소스·`docs/`·`.claude/`·`.agents/`(스킬)·`.git`·`.fusion`·`.env`와
+  수용 테스트 폴더는 무시할 수 없습니다.
+- 무시한 폴더는 완료 digest에도 포함되지 않아, 실행 뒤 도구가 그 폴더를 바꿔도 DONE이 무효가 되지 않습니다.
+- 검사 명령(테스트·빌드)도 `dist/` 등 빌드 산출물과 무시한 폴더 밖의 파일을 바꾸면 중단되므로,
+  캐시·로그를 프로젝트 안에 남기는 명령은 출력 위치를 바꾸거나 해당 폴더를 `ignore`에 넣으세요.
+
 ## 수용 테스트 보호 폴더(선택)
 
 사람이 쓴 테스트를 에이전트가 고치지 못하게 하려면 `init`에 `--acceptance`를 붙입니다
@@ -295,17 +314,20 @@ push = true     # 원격(origin 우선)이 있으면 푸시. commit = true가 �
 - 0.1.0은 감독하에 쓰는 로컬 MVP입니다. 작은 과제(bench 3개, Codex·Claude 혼합 루프, 강제 종료 후 재개)로
   실제 Codex·Claude 계정 실행을 확인했지만, 큰 프로젝트에서의 성능은 검증하지 않았습니다. 자세한 범위는 `docs/VALIDATION.md`.
 - Linux/Python 3.12와 Windows 11/Python 3.12에서 자체 테스트·데모를 실행했고, 실제 AI 실행은 Windows에서 했습니다. macOS 실기 검증은 남아 있습니다.
-  Windows·Linux/Python 3.11–3.13 CI 설정을 포함했지만 원격 CI가 실행된 것은 아닙니다.
+  GitHub Actions(`.github/workflows/test.yml`)가 Windows·Linux/Python 3.11–3.13에서 자체 테스트를 push마다 실행합니다. 현재 통과 여부는 저장소의 Actions 탭에서 확인하세요.
+  agy 실행은 자동 테스트(대체 실행기)로 명령 구성과 응답 처리를 확인합니다. 실제 계정 실행 결과는 `docs/VALIDATION.md`에 아직 기록하지 않았습니다.
 - 수정 감시는 파일 내용·권한의 전후 비교입니다. OS 보안 경계가 아니며 읽기·네트워크·폴더 밖 부작용을 차단하지 않습니다.
   `.git`, 가상환경, `node_modules`, 일부 캐시는 감시에서 제외합니다. 생성 뒤 원상복구한 일시적 수정도 잡지 못합니다.
 - Codex는 계획·평가에 read-only, 구현에 workspace-write를 요청합니다. 사용자 CLI 정책은 그대로 적용합니다.
-  Claude는 역할별 내장 도구를 제한합니다. 이 제한을 호스트 전체 격리라고 간주하면 안 됩니다.
+  Claude는 역할별 내장 도구를 제한합니다. agy는 계획·평가에 `--mode plan`, 구현에 `--mode accept-edits`(파일 수정만 허용,
+  헤드리스에서 명령 실행은 자동 거부)를 씁니다. 이 제한을 호스트 전체 격리라고 간주하면 안 됩니다.
+- agy 실행 파일이 PATH에 없으면 `~/.gemini/bin`에서 찾습니다(`doctor`가 경로를 보여 줌). 모델 ID와 지원 effort는 `agy models`로 확인하세요.
 - 기본 Claude Generator는 읽기·쓰기·편집 도구만 사용합니다. 셸이 필요한 설치·마이그레이션은 사전 준비가 필요합니다.
 - 검사 명령은 신뢰하는 로컬 명령으로 취급합니다. 소스/설정 변경을 검사 후 탐지하고 중단하며,
   `dist/`, `build/`, `.next/`, `coverage/` 산출물과 공통 캐시는 예외입니다.
 - Generator가 수정 가능한 테스트의 충실도는 Evaluator가 검토합니다. 별도 불변 평가셋·컨테이너 격리는 후속 개선 항목입니다.
 - 실행 로그에는 프롬프트·응답·검사 출력이 포함됩니다. 비밀정보가 섞인 작업 기록을 공개 저장소에 올리지 마세요.
-- Claude가 제공하는 사용량/비용 필드는 기록하지만 Codex 사용량과 구독 잔여량은 추정하지 않습니다.
+- Claude가 제공하는 사용량/비용 필드와 agy의 입력·출력 토큰 수는 기록하지만 Codex 사용량과 구독 잔여량은 추정하지 않습니다.
 - `prd`의 대화형 세션과 스킬 설치 단계는 사람이 실제 터미널에서 진행합니다. 자동 테스트는 대체 실행기로 권한 설정과 사후 검사만 확인합니다.
 
 ## 개발

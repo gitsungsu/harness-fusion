@@ -23,18 +23,22 @@ def atomic_json(path, data):
     os.replace(temp, path)
 
 
-def snapshot(root):
+def snapshot(root, ignore=()):
+    """Content hashes of project files. `ignore` holds tool-state folder prefixes ("name/") from [watch]."""
+    ignore = tuple(ignore)
     result = {}
     for directory, dirs, files in os.walk(root, followlinks=False):
         for name in list(dirs):
             p = Path(directory) / name
-            if name in EXCLUDED:
+            if name in EXCLUDED or (ignore and (p.relative_to(root).as_posix() + "/").startswith(ignore)):
                 dirs.remove(name)
             elif p.is_symlink():
                 raise ValueError(f"Directory symlinks are unsupported: {p}")
         for name in files:
             p = Path(directory) / name
             relative = p.relative_to(root).as_posix()
+            if ignore and relative.startswith(ignore):
+                continue
             metadata = p.lstat()
             if not stat.S_ISREG(metadata.st_mode):
                 raise ValueError(f"Only regular project files supported: {relative}")
@@ -89,8 +93,8 @@ def digest(items):
     return hashlib.sha256(json.dumps(items, sort_keys=True).encode()).hexdigest()
 
 
-def code_digest(root):
-    items = {p: h for p, h in snapshot(root).items() if not p.startswith(".fusion/")
+def code_digest(root, ignore=()):
+    items = {p: h for p, h in snapshot(root, ignore).items() if not p.startswith(".fusion/")
              and p not in {"docs/PLAN.md", "docs/TASKS.md", "docs/MEMORY.md", "docs/IMPLEMENT.md", "docs/REVIEW.md"}}
     return digest(items)
 

@@ -39,6 +39,7 @@ class Engine:
         self.root = root.resolve()
         fs.snapshot(self.root)  # Reject symlinked control directories before writing any state.
         self.cfg = config.load(self.root)
+        self.ignored = tuple(self.cfg["watch"]["ignore"])
         self.invoke = invoke or providers.invoke
         self.meta = self.root / ".fusion"
         self.state_path = self.meta / "state.json"
@@ -83,7 +84,7 @@ class Engine:
             self.state = json.loads(self.state_path.read_text(encoding="utf-8"))
             if self.state.get("fingerprint") != fingerprint:
                 raise Halt("Config/instructions/PRD changed since the run. Preserve the old run and initialize a new project")
-            if self.state.get("status") == "DONE" and self.state.get("digest") != fs.code_digest(self.root):
+            if self.state.get("status") == "DONE" and self.state.get("digest") != fs.code_digest(self.root, self.ignored):
                 raise Halt("Files changed after DONE; old completion is invalid. Initialize a new run in a copy")
         else:
             if resume:
@@ -99,7 +100,7 @@ class Engine:
         prompt = context.build(self.root, role, self.state, token, task, evidence,
                                self.cfg["limits"]["context_chars"], self.cfg["acceptance"])
         (folder / "prompt.txt").write_text(prompt, encoding="utf-8")
-        before = fs.snapshot(self.root)
+        before = fs.snapshot(self.root, self.ignored)
         result = None
         failure = None
         try:
@@ -108,7 +109,7 @@ class Engine:
         except Exception as exc:
             failure = exc
         finally:
-            after = fs.snapshot(self.root)
+            after = fs.snapshot(self.root, self.ignored)
             changed = fs.changes(before, after)
             illegal = fs.violations(changed, role, task["touch"] if task else [],
                                     [self.cfg["acceptance"]] if self.cfg["acceptance"] else [])
@@ -183,10 +184,10 @@ class Engine:
     def checks(self):
         results = []
         for check in self.cfg["checks"]:
-            before = fs.snapshot(self.root)
+            before = fs.snapshot(self.root, self.ignored)
             result = execute(config.argv(check["command"]), self.root,
                              self.time_left(self.cfg["limits"]["check_timeout"]))
-            changed = fs.changes(before, fs.snapshot(self.root))
+            changed = fs.changes(before, fs.snapshot(self.root, self.ignored))
             illegal = [p for p in changed if not p.startswith(fs.BUILD_OUTPUTS)]
             result.update(name=check["name"], command=check["command"])
             token = uuid.uuid4().hex
@@ -236,7 +237,7 @@ class Engine:
         def tail(result):
             return (result["stderr"] or result["stdout"]).strip()[-300:]
         excludes = [f":(exclude,glob)**/{name}/**" for name in fs.EXCLUDED]
-        excludes += [f":(exclude){prefix.rstrip('/')}" for prefix in fs.BUILD_OUTPUTS]
+        excludes += [f":(exclude){prefix.rstrip('/')}" for prefix in fs.BUILD_OUTPUTS + self.ignored]
         if git("rev-parse", "--is-inside-work-tree")["returncode"] != 0:
             note = "skipped: not a git repository"
         elif (added := git("add", "-A", "--", ".", *GIT_NEVER, *excludes))["returncode"] != 0:
@@ -322,7 +323,7 @@ class Engine:
                     raise Halt("Final integration review failed; --resume reopens tasks within remaining retry budgets")
                 self.state["status"] = "DONE"
                 self.state["last_failure"] = None
-                self.state["digest"] = fs.code_digest(self.root)
+                self.state["digest"] = fs.code_digest(self.root, self.ignored)
                 self.save()
                 self.event("done", digest=self.state["digest"])
                 print("DONE: tests + task reviews + final integration review passed.", flush=True)

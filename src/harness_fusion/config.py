@@ -10,7 +10,9 @@ AGENTS_FILE = "agents.toml"
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 CRITERIA_WORDS = re.compile(r"완료\s*기준|인수\s*기준|수용\s*기준|acceptance|completion criteria|done when", re.I)
 TEST_WORDS = re.compile(r"테스트|test", re.I)
-OPTIONAL_SECTIONS = ("setup", "acceptance", "git")
+OPTIONAL_SECTIONS = ("setup", "acceptance", "git", "watch")
+# Hidden folders that stay watched even if listed in [watch] ignore (skills and harness controls).
+UNIGNORABLE = (".claude/", ".agents/")
 DEFAULT_SETUP_TIMEOUT = 600
 
 
@@ -69,6 +71,7 @@ def load(root):
     data["setup"] = setup_steps(optional.get("setup", []))
     data["acceptance"] = acceptance_path(optional.get("acceptance"))
     data["git"] = git_settings(optional.get("git"))
+    data["watch"] = watch_settings(optional.get("watch"), data["acceptance"])
     if data["acceptance"]:
         if "acceptance" in names:
             raise ContractError("Check name 'acceptance' is reserved when [acceptance] is configured")
@@ -125,6 +128,28 @@ def git_settings(value):
     return settings
 
 
+def watch_settings(value, acceptance=None):
+    """Tool-state folders (e.g. .omc/, .expo/) written by editors, hooks or CLIs outside the agent's control.
+    The harness neither watches nor commits them, so their churn cannot halt a run.
+    Only hidden top-level-style folders qualify; source, docs, skills and controls stay watched."""
+    if value is None:
+        return {"ignore": []}
+    if not isinstance(value, dict) or set(value) - {"ignore"}:
+        raise ContractError("[watch] may only set ignore")
+    ignore = value.get("ignore", [])
+    if not isinstance(ignore, list):
+        raise ContractError("[watch] ignore must be an array of folder paths ending with '/'")
+    for entry in ignore:
+        path_rule(entry)
+        if not entry.endswith("/") or "*" in entry:
+            raise ContractError(f"[watch] ignore entries are folders ending with '/', without wildcards: {entry}")
+        if not entry.startswith(".") or entry.startswith(UNIGNORABLE):
+            raise ContractError(f"[watch] may only ignore hidden tool-state folders, not sources or controls: {entry}")
+        if acceptance and (acceptance + "/").startswith(entry):
+            raise ContractError(f"[watch] cannot ignore the acceptance folder: {entry}")
+    return {"ignore": ignore}
+
+
 def acceptance_path(value):
     """Folder of human-written tests that no agent may modify."""
     if value is None:
@@ -175,14 +200,28 @@ def default_agents(backend, uniform=False):
     return resolved
 
 
+def backend_menu():
+    """Comment block listing every backend with its default model, so each project can mix them per role."""
+    models = tomllib.loads(DEFAULT_AGENTS.read_text(encoding="utf-8"))["models"]
+    return [
+        "# 역할(planner / generator / evaluator)마다 backend·model·effort를 따로 고를 수 있습니다.",
+        "# 예: 계획·구현은 agy, 평가는 claude처럼 섞어 써도 됩니다.",
+        "#",
+        f'#   backend = "agy"     Google Antigravity CLI   기본 model: {models.get("agy", "-")}  (목록: `agy models`)',
+        f'#   backend = "claude"  Claude Code CLI          기본 model: {models.get("claude", "-")}'
+        "  (예: claude-opus-5-5, claude-fable-5-1)",
+        f'#   backend = "codex"   Codex CLI                기본 model: {models.get("codex", "-")}',
+        '#   backend = "command" 직접 만든 명령 (command = ["..."], model·effort 없음)',
+        "#",
+        "# effort: low | medium | high | xhigh | max  (agy는 모델마다 지원 effort가 다릅니다)",
+        "# model 줄을 지우면 각 CLI의 기본 모델을 씁니다.",
+        "# 이 파일을 바꾸면 이전 run을 이어갈 수 없고 새 run으로 시작합니다.",
+    ]
+
+
 def agents_template(backend, uniform=False):
     """agents.toml for a new project, rendered from default_agents.toml."""
-    lines = [
-        "# Backend, model and effort for each agent. One section per role.",
-        "# backend: codex | claude | agy | command   effort: low | medium | high | xhigh | max",
-        "# Agents are defined only here (not in harness.toml). Changing this file starts a new run.",
-        "# Initial values come from harness_fusion/default_agents.toml; edit here for this project only.",
-    ]
+    lines = backend_menu()
     for role, cfg in default_agents(backend, uniform).items():
         if role == "bootstrap":
             lines += ["", "# Interview agent for `harness-fusion prd` (interactive, so claude only; not part of a run)."]
@@ -209,10 +248,16 @@ def initialize(root, backend="codex", profile="python", goal=None, acceptance=Fa
 [limits]
 max_cycles = 8
 max_attempts = 3
-agent_timeout = 900
-check_timeout = 180
-total_seconds = 7200
+agent_timeout = 1800
+check_timeout = 300
+total_seconds = 14400
 context_chars = 48000
+
+# Tool-state folders that editors, hooks or CLIs write on their own (not agent work).
+# The harness neither watches nor commits them, so they cannot halt a run.
+# Only hidden folders ending with '/' are allowed; .claude/ and .agents/ stay protected.
+[watch]
+ignore = [".omc/", ".expo/"]
 '''
     agents = agents_template(backend, uniform)
     (root / AGENTS_FILE).write_text(agents, encoding="utf-8")

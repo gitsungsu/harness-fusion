@@ -24,6 +24,26 @@ class ContractsTests(unittest.TestCase):
         with self.assertRaises(c.ContractError):
             c.object_from("PASS")
 
+    def test_object_after_progress_prose_is_accepted(self):
+        text = 'I have launched `npm run lint`.\nWaiting for the task to finish.\n{\n  "summary": "done {ok}"\n}\n'
+        self.assertEqual(c.object_from(text), {"summary": "done {ok}"})
+
+    def test_fenced_object_after_prose_is_accepted(self):
+        self.assertEqual(c.object_from('Result:\n```json\n{"a": 1}\n```'), {"a": 1})
+
+    def test_prose_after_object_is_rejected(self):
+        with self.assertRaises(c.ContractError):
+            c.object_from('{"verdict": "PASS"}\nActually it failed.')
+
+    def test_duplicate_keys_after_prose_rejected(self):
+        with self.assertRaises(c.ContractError) as caught:
+            c.object_from('Done.\n{"verdict":"FAIL","verdict":"PASS"}')
+        self.assertIn("Duplicate", str(caught.exception))
+
+    def test_prose_without_object_rejected(self):
+        with self.assertRaises(c.ContractError):
+            c.object_from("Waiting for the task {to finish}")
+
     def test_no_checks_cannot_pass(self):
         self.assertFalse(c.gate([], valid_review()))
 

@@ -37,10 +37,10 @@ effort = "medium"
 # 작업별·최종 검토 에이전트 (읽기 전용)
 [evaluator]
 backend = "init"
-effort = "medium"
+effort = "high"
 
 # `harness-fusion prd`의 PRD 인터뷰 에이전트 (대화형이라 claude만 가능)
 [bootstrap]
 backend = "claude"
 model = "claude-sonnet-5-5"
-effort = "high"
+effort = "xhigh"

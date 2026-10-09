@@ -8,21 +8,42 @@ class ContractError(ValueError):
     pass
 
 
+def _unique(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ContractError(f"Duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
+
+def _trailing_object(text):
+    """A JSON object that ends the text after progress prose (agents sometimes narrate before answering)."""
+    if text.endswith("```"):
+        text = text[:-3].rstrip()
+    decoder = json.JSONDecoder(object_pairs_hook=_unique)
+    for match in re.finditer(r"\{", text):
+        try:
+            result, end = decoder.raw_decode(text, match.start())
+        except json.JSONDecodeError:
+            continue
+        if isinstance(result, dict) and not text[end:].strip():
+            return result
+    return None
+
+
 def object_from(text):
     text = text.strip()
     if text.startswith("```json\n") and text.endswith("```"):
         text = text[8:-3].strip()
     try:
-        def unique(pairs):
-            result = {}
-            for key, value in pairs:
-                if key in result:
-                    raise ContractError(f"Duplicate JSON key: {key}")
-                result[key] = value
-            return result
-        result = json.loads(text, object_pairs_hook=unique)
+        result = json.loads(text, object_pairs_hook=_unique)
+    except ContractError:
+        raise
     except (ValueError, TypeError) as exc:
-        raise ContractError(f"Expected one JSON object: {exc}") from exc
+        result = _trailing_object(text) if isinstance(text, str) else None
+        if result is None:
+            raise ContractError(f"Expected one JSON object: {exc}") from exc
     if not isinstance(result, dict):
         raise ContractError("Expected JSON object")
     return result

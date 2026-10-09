@@ -70,7 +70,11 @@ def status(root):
         output["retry_hint"] = state.get("retry_hint")
     output["usage"] = usage_summary(root)
     if state.get("status") == "DONE":
-        output["current_files_match_verified_result"] = state.get("digest") == code_digest(root)
+        try:
+            ignored = config.load(root)["watch"]["ignore"]
+        except (OSError, ValueError):
+            ignored = ()
+        output["current_files_match_verified_result"] = state.get("digest") == code_digest(root, ignored)
     print(json.dumps(output, ensure_ascii=False, indent=2))
     return 0
 

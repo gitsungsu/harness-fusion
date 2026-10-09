@@ -47,9 +47,9 @@ class ConfigTests(Base):
         bad = {
             "codex cannot run an interactive interview": ('backend = "claude"', 'backend = "codex"'),
             "command backend": ('backend = "claude"', 'backend = "command"'),
-            "ultra effort": ('effort = "high"\n', 'effort = "ultra"\n'),
-            "unknown effort": ('effort = "high"\n', 'effort = "turbo"\n'),
-            "unknown key": ('effort = "high"\n', 'effort = "high"\ncommand = ["x"]\n'),
+            "ultra effort": ('effort = "xhigh"\n', 'effort = "ultra"\n'),
+            "unknown effort": ('effort = "xhigh"\n', 'effort = "turbo"\n'),
+            "unknown key": ('effort = "xhigh"\n', 'effort = "xhigh"\ncommand = ["x"]\n'),
         }
         for name, (old, new) in bad.items():
             with self.subTest(name):
@@ -69,7 +69,7 @@ class CommandTests(Base):
         command = self.command()
         self.assertEqual(command[0], "claude")
         self.assertEqual(command[command.index("--model") + 1], MODEL)
-        self.assertEqual(command[command.index("--effort") + 1], "high")
+        self.assertEqual(command[command.index("--effort") + 1], "xhigh")
 
     def test_is_interactive_and_never_bypasses_permissions(self):
         command = self.command()
